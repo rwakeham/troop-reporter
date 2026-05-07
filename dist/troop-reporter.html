@@ -2576,27 +2576,40 @@ window.TR = window.TR || {};
       list-style: none;
       cursor: pointer;
       display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      gap: 8pt;
-      padding: 4pt 6pt;
+      align-items: center;
+      gap: 10pt;
+      padding: 6pt 10pt;
       margin-bottom: 4pt;
-      border-radius: 3pt;
+      border-radius: 4pt;
+      background: #f1efe8;
       user-select: none;
+      transition: background-color 0.12s;
     }
-    details.rank-block > summary:hover { background: #f7f5ee; }
+    details.rank-block > summary:hover { background: #e6dec7; }
+    details.rank-block[open] > summary { background: #e6f1fb; }
+    details.rank-block[open] > summary:hover { background: #d3e6f7; }
     details.rank-block > summary::-webkit-details-marker { display: none; }
+    details.rank-block > summary::marker { content: ""; }
     details.rank-block > summary::before {
       content: "\\25B8"; /* triangle right */
-      font-size: 9pt;
-      color: #888780;
-      margin-right: 6pt;
-      transition: transform 0.12s;
-      display: inline-block;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14pt;
+      height: 14pt;
+      flex-shrink: 0;
+      font-size: 12pt;
+      line-height: 1;
+      color: #185fa5;
+      transition: transform 0.15s ease;
     }
     details.rank-block[open] > summary::before { transform: rotate(90deg); }
     .rank-block-header { /* legacy class, harmless */ }
-    .rank-block-counts { font-size: 9pt; color: #5f5e5a; }
+    .rank-block-counts {
+      margin-left: auto;
+      font-size: 9pt;
+      color: #5f5e5a;
+    }
 
     /* Toolbar (screen only) */
     .section-heading-row {
@@ -2647,7 +2660,11 @@ window.TR = window.TR || {};
 
     @media print {
       .section-toolbar { display: none !important; }
-      details.rank-block > summary { cursor: default; }
+      details.rank-block > summary {
+        cursor: default;
+        background: transparent !important;
+        padding: 2pt 0;
+      }
       details.rank-block > summary::before { display: none; }
     }
 
