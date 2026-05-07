@@ -1,0 +1,13 @@
+{
+  "name": "troop-reporter",
+  "version": "0.1.0",
+  "description": "Static dashboard for BSA troop advancement exports.",
+  "private": true,
+  "scripts": {
+    "build": "node build.js"
+  },
+  "devDependencies": {
+    "papaparse": "5.4.1",
+    "xlsx": "0.18.5"
+  }
+}
