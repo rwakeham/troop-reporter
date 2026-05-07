@@ -168,17 +168,12 @@ window.TR = window.TR || {};
         ' — <a href="#" data-clear-rank-filter>clear</a></span>'
       : '<span class="section-hint rank-dist-hint muted">Click a rank to filter the roster.</span>';
 
-    const bulkPdfHtml = state.scouts && Object.keys(state.scouts).length
-      ? '<button type="button" id="bulk-pdf-btn" class="btn-secondary">Generate PDF</button>'
-      : "";
-
     return '' +
       '<section class="dashboard">' +
         '<header class="dashboard-header">' +
           "<h2>" + esc(title) + "</h2>" +
           '<div class="dashboard-controls">' +
             '<input type="text" id="search-input" class="search-input" placeholder="Search by name…" autocomplete="off">' +
-            bulkPdfHtml +
           "</div>" +
         "</header>" +
 

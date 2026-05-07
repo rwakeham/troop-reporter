@@ -645,16 +645,8 @@ window.TR = window.TR || {};
     return printHtmlDocument(html);
   }
 
-  function printScoutReports(scouts, state) {
-    if (!scouts || !scouts.length) return Promise.resolve();
-    const body = scouts.map((s) => buildScoutReport(s, state)).join("");
-    const title = "Advancement Reports (" + scouts.length + ")";
-    return printHtmlDocument(buildPrintDocument(body, title));
-  }
-
   TR.print = {
     printScoutReport,
-    printScoutReports,
     buildScoutReport,
     buildPrintDocument
   };
