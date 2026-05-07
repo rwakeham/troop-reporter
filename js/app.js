@@ -14,6 +14,8 @@
     badgesFileName: null,
     view: { level: "troop", tab: "overview" },
     sort: { key: "displayName", dir: "asc" },
+    rankFilter: null,           // Active rank quick-filter (e.g., "Life") or null
+    hideCompletedReqs: false,   // Ranks tab toggle
     pendingRankRows: null,
     pendingMbRows: null
   };
@@ -194,6 +196,8 @@
   function setView(viewState) {
     state.view = Object.assign({ tab: "overview" }, viewState);
     state.sort = { key: "displayName", dir: "asc" };
+    state.rankFilter = null;
+    state.hideCompletedReqs = false;
     renderAll();
     window.scrollTo({ top: 0, behavior: "instant" });
   }
@@ -247,6 +251,25 @@
       return;
     }
 
+    // Rank distribution quick-filter toggle
+    const rankFilterEl = e.target.closest("[data-rank-filter]");
+    if (rankFilterEl) {
+      const rank = rankFilterEl.dataset.rankFilter;
+      state.rankFilter = state.rankFilter === rank ? null : rank;
+      applyRosterFilters();
+      updateRankFilterUI();
+      return;
+    }
+
+    // "clear" link in the rank-distribution hint
+    if (e.target.closest("[data-clear-rank-filter]")) {
+      e.preventDefault();
+      state.rankFilter = null;
+      applyRosterFilters();
+      updateRankFilterUI();
+      return;
+    }
+
     // Navigation links / pills
     const navEl = e.target.closest("[data-nav]");
     if (navEl) {
@@ -276,9 +299,9 @@
   }
 
   function handleDashboardChange(e) {
-    if (e.target.id === "patrol-filter") {
-      const patrol = e.target.value;
-      if (patrol) setView({ level: "patrol", patrol });
+    if (e.target.id === "hide-completed-reqs") {
+      state.hideCompletedReqs = !!e.target.checked;
+      renderAll();
     }
   }
 
@@ -309,19 +332,49 @@
         th.classList.add("sort-" + state.sort.dir);
       }
     });
-    // Re-apply current search filter
-    const searchInput = $("search-input");
-    if (searchInput && searchInput.value) applyTableSearch(searchInput.value);
+    // Re-apply current filters (search + rank)
+    applyRosterFilters();
   }
 
   function applyTableSearch(query) {
-    const q = (query || "").trim().toLowerCase();
+    // Backwards-compat shim — the search input handler still calls this.
+    applyRosterFilters(query);
+  }
+
+  function applyRosterFilters(searchOverride) {
     const tbody = document.querySelector("#roster-table tbody");
     if (!tbody) return;
+    const searchInput = $("search-input");
+    const rawQuery = searchOverride != null ? searchOverride : (searchInput ? searchInput.value : "");
+    const q = (rawQuery || "").trim().toLowerCase();
+    const rankFilter = state.rankFilter;
+
     Array.from(tbody.children).forEach((tr) => {
       const hay = tr.dataset.search || "";
-      tr.style.display = !q || hay.includes(q) ? "" : "none";
+      const rank = tr.dataset.rank || "";
+      const matchesSearch = !q || hay.includes(q);
+      const matchesRank = !rankFilter || rank === rankFilter;
+      tr.style.display = matchesSearch && matchesRank ? "" : "none";
     });
+  }
+
+  function updateRankFilterUI() {
+    document.querySelectorAll("[data-rank-filter]").forEach((el) => {
+      const isActive = el.dataset.rankFilter === state.rankFilter;
+      el.classList.toggle("rank-dist-active", isActive);
+      el.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+    const hint = document.querySelector(".rank-dist-hint");
+    if (hint) {
+      if (state.rankFilter) {
+        hint.classList.remove("muted");
+        hint.innerHTML = "Filtering by " + TR.render.esc(state.rankFilter) +
+          ' — <a href="#" data-clear-rank-filter>clear</a>';
+      } else {
+        hint.classList.add("muted");
+        hint.textContent = "Click a rank to filter the roster.";
+      }
+    }
   }
 
   // ---------------------------------------------------------------------

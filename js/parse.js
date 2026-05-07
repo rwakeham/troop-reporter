@@ -82,6 +82,25 @@ window.TR = window.TR || {};
     return parts[1].trim() + " " + parts[0].trim();
   }
 
+  // Title-case patrol names that arrive as ALL CAPS in TroopWebHost exports.
+  // Mixed-case names (e.g., already "Pickles") are left alone.
+  function formatPatrolName(name) {
+    const trimmed = clean(name);
+    if (!trimmed) return trimmed;
+    if (/[A-Z]/.test(trimmed) && !/[a-z]/.test(trimmed)) {
+      return trimmed.toLowerCase().replace(/(^|\s)(\S)/g, (_, sep, c) => sep + c.toUpperCase());
+    }
+    return trimmed;
+  }
+
+  // Scouts to always exclude from the dashboard regardless of file content.
+  // Match against the formatted display name ("First Last").
+  const EXCLUDED_DISPLAY_NAMES = new Set(["Test Scout"]);
+
+  function isExcludedScout(displayNameStr) {
+    return EXCLUDED_DISPLAY_NAMES.has(displayNameStr);
+  }
+
   // ---------------------------------------------------------------------
   // File reading
   // ---------------------------------------------------------------------
@@ -149,13 +168,13 @@ window.TR = window.TR || {};
     if (!rows.length) {
       return {
         currentRank: null, nextRank: null, age: null, patrol: null,
-        incompleteRanks: {}, completedRanks: []
+        rankRequirements: {}, completedRanks: []
       };
     }
     const currentRank = clean(rows[0]["Current Rank"]) || null;
     const ageRaw = rows[0]["Age"];
     const age = ageRaw != null && ageRaw !== "" ? parseInt(ageRaw, 10) : null;
-    const patrol = clean(rows[0]["Patrol"]) || null;
+    const patrol = formatPatrolName(rows[0]["Patrol"]) || null;
 
     let nextRank = "Scout";
     if (currentRank && RANKS_ADVANCEMENT.includes(currentRank)) {
@@ -165,30 +184,38 @@ window.TR = window.TR || {};
       nextRank = null;
     }
 
-    const incompleteRanks = {};
+    const rankRequirements = {};
     const completedRanks = [];
 
     RANKS_ADVANCEMENT.forEach((rank) => {
       const rankRows = rows.filter((r) => clean(r.Rank) === rank);
       if (!rankRows.length) return;
-      const incomplete = rankRows.filter((r) => isBlank(r["Date Earned"]));
-      const complete = rankRows.filter((r) => !isBlank(r["Date Earned"]));
 
-      if (incomplete.length === 0 && complete.length > 0) {
-        completedRanks.push(rank);
-      } else if (incomplete.length > 0) {
-        incompleteRanks[rank] = {
-          reqs: incomplete.map((r) => ({
-            code: clean(r.Code),
-            text: clean(r.Requirement)
-          })),
-          count: incomplete.length,
-          completedCount: complete.length
+      const reqs = rankRows.map((r) => {
+        const dateEarned = parseDate(r["Date Earned"]);
+        return {
+          code: clean(r.Code),
+          text: clean(r.Requirement),
+          completed: !!dateEarned,
+          dateEarned
         };
+      });
+      const completedCount = reqs.filter((r) => r.completed).length;
+      const incompleteCount = reqs.length - completedCount;
+
+      rankRequirements[rank] = {
+        reqs,
+        totalCount: reqs.length,
+        completedCount,
+        incompleteCount
+      };
+
+      if (incompleteCount === 0 && reqs.length > 0) {
+        completedRanks.push(rank);
       }
     });
 
-    return { currentRank, nextRank, age, patrol, incompleteRanks, completedRanks };
+    return { currentRank, nextRank, age, patrol, rankRequirements, completedRanks };
   }
 
   function parseMbForScout(rows) {
@@ -284,8 +311,8 @@ window.TR = window.TR || {};
 
     // Tier 1: Next rank within reach
     const nextRank = scout.nextRank;
-    const remaining = (scout.incompleteRanks && scout.incompleteRanks[nextRank]
-      && scout.incompleteRanks[nextRank].count) || 0;
+    const remaining = (scout.rankRequirements && scout.rankRequirements[nextRank]
+      && scout.rankRequirements[nextRank].incompleteCount) || 0;
     if (nextRank && remaining > 0 && remaining <= 5) {
       actions.push({
         tier: 1,
@@ -382,9 +409,10 @@ window.TR = window.TR || {};
         hasRankData: (rByScout[name] || []).length > 0,
         hasMbData: (mByScout[name] || []).length > 0
       };
+      if (isExcludedScout(record.displayName)) return;
       record.priorityActions = generatePriorityActions(record);
       record.totalIncompleteRankReqs =
-        (record.incompleteRanks[record.nextRank] && record.incompleteRanks[record.nextRank].count) || 0;
+        (record.rankRequirements[record.nextRank] && record.rankRequirements[record.nextRank].incompleteCount) || 0;
       record.totalInProgressBadges = mbInfo.inProgress.length;
       record.eagleInProgressCount = mbInfo.eagleInProgressCount;
       record.eagleEarnedCount = mbInfo.eagleEarnedCount;

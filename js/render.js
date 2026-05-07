@@ -134,7 +134,7 @@ window.TR = window.TR || {};
     ].filter(Boolean).join("");
 
     const distHtml = state.rankAvailable
-      ? renderRankDistribution(rankCounts)
+      ? renderRankDistribution(rankCounts, state.rankFilter)
       : '<div class="empty">Rank data not available.</div>';
 
     let patrolPillsHtml = "";
@@ -158,20 +158,28 @@ window.TR = window.TR || {};
       ? renderRosterTable(scouts, showPatrolColumn, state)
       : '<div class="roster-empty">No scouts found.</div>';
 
+    const rankFilter = state.rankFilter || null;
+    const distHint = rankFilter
+      ? '<span class="rank-dist-hint">Filtering by ' + esc(rankFilter) +
+        ' — <a href="#" data-clear-rank-filter>clear</a></span>'
+      : '<span class="rank-dist-hint muted">Click a rank to filter the roster.</span>';
+
     return '' +
       '<section class="dashboard">' +
         '<header class="dashboard-header">' +
           "<h2>" + esc(title) + "</h2>" +
           '<div class="dashboard-controls">' +
             '<input type="text" id="search-input" class="search-input" placeholder="Search by name…" autocomplete="off">' +
-            (showPatrolColumn ? renderPatrolFilter(state) : "") +
           "</div>" +
         "</header>" +
 
         '<div class="metrics-row">' + metricsHtml + "</div>" +
 
         '<div class="section">' +
-          '<h3 class="section-title">Rank Distribution</h3>' +
+          '<div class="section-title-row">' +
+            '<h3 class="section-title">Rank Distribution</h3>' +
+            distHint +
+          "</div>" +
           distHtml +
         "</div>" +
 
@@ -184,24 +192,18 @@ window.TR = window.TR || {};
       "</section>";
   }
 
-  function renderRankDistribution(rankCounts) {
+  function renderRankDistribution(rankCounts, activeRank) {
     const items = RANKS_ADVANCEMENT.map((rank) => {
       const count = rankCounts[rank] || 0;
       if (!count) return "";
-      return '<div class="rank-dist-item ' + RANK_PILL_CLASS[rank] + '">' +
+      const active = activeRank === rank ? " rank-dist-active" : "";
+      return '<button type="button" class="rank-dist-item ' + RANK_PILL_CLASS[rank] + active +
+        '" data-rank-filter="' + esc(rank) + '" aria-pressed="' + (active ? "true" : "false") + '">' +
         '<span class="rank-dist-name">' + esc(rank) + "</span>" +
         '<span class="rank-dist-count">' + count + "</span>" +
-        "</div>";
+        "</button>";
     }).filter(Boolean).join("");
     return '<div class="rank-distribution">' + (items || '<span class="muted">No rank data.</span>') + "</div>";
-  }
-
-  function renderPatrolFilter(state) {
-    const patrols = Object.keys(state.patrols).sort();
-    if (patrols.length <= 1) return "";
-    return '<select id="patrol-filter" class="select"><option value="">All Patrols</option>' +
-      patrols.map((p) => '<option value="' + esc(p) + '">' + esc(p) + "</option>").join("") +
-      "</select>";
   }
 
   function metricCard(label, value) {
@@ -263,7 +265,8 @@ window.TR = window.TR || {};
     if (state.badgesAvailable) cells.push('<td class="num">' + (s.eagleInProgressCount || 0) + "</td>");
     if (state.rankAvailable) cells.push('<td class="num">' + (s.age != null ? s.age : "—") + "</td>");
 
-    return '<tr data-search="' + esc(s.displayName.toLowerCase()) + '">' + cells.join("") + "</tr>";
+    return '<tr data-search="' + esc(s.displayName.toLowerCase()) +
+      '" data-rank="' + esc(s.currentRank || "") + '">' + cells.join("") + "</tr>";
   }
 
   function sortScouts(scouts, key, dir) {
@@ -376,13 +379,13 @@ window.TR = window.TR || {};
 
   function renderRankProgression(s) {
     const completed = new Set(s.completedRanks || []);
-    const incompleteRanks = s.incompleteRanks || {};
+    const rankReqs = s.rankRequirements || {};
 
     const stepsHtml = RANKS_ADVANCEMENT.map((rank, i) => {
       const isCompleted = completed.has(rank);
       const isCurrent = rank === s.currentRank;
       const isNext = rank === s.nextRank && !isCurrent;
-      const incomplete = incompleteRanks[rank];
+      const info = rankReqs[rank];
       let cls = "step-future";
       if (isCompleted) cls = "step-done";
       else if (isCurrent) cls = "step-current";
@@ -391,8 +394,8 @@ window.TR = window.TR || {};
       return '<div class="rank-step ' + cls + '">' +
         '<div class="step-marker">' + (isCompleted ? "✓" : i + 1) + "</div>" +
         '<div class="step-label">' + esc(rank) + "</div>" +
-        (incomplete && !isCompleted
-          ? '<div class="step-sub">' + incomplete.count + " left</div>"
+        (info && !isCompleted && info.incompleteCount > 0
+          ? '<div class="step-sub">' + info.incompleteCount + " left</div>"
           : "") +
         "</div>";
     }).join('<div class="step-connector"></div>');
@@ -457,33 +460,67 @@ window.TR = window.TR || {};
     if (!state.rankAvailable) {
       return '<div class="empty">Rank data not available — upload the Rank Requirements Status export.</div>';
     }
-    const entries = Object.entries(s.incompleteRanks || {});
-    if (!entries.length) {
-      const completedCount = (s.completedRanks || []).length;
-      return '<div class="empty">No incomplete rank requirements' +
-        (completedCount ? " — " + completedCount + " ranks completed." : ".") + "</div>";
+    const rankReqs = s.rankRequirements || {};
+    const ranksWithData = RANKS_ADVANCEMENT.filter((r) => rankReqs[r]);
+    if (!ranksWithData.length) {
+      return '<div class="empty">No rank requirement data available.</div>';
     }
-    entries.sort((a, b) => RANKS_ADVANCEMENT.indexOf(a[0]) - RANKS_ADVANCEMENT.indexOf(b[0]));
-    return entries.map(([rank, info]) =>
-      '<details class="card collapsible"' + (rank === s.nextRank ? " open" : "") + ">" +
+
+    const hideCompleted = !!state.hideCompletedReqs;
+    const toolbar =
+      '<div class="rank-tab-toolbar">' +
+        '<label class="toggle">' +
+          '<input type="checkbox" id="hide-completed-reqs"' +
+          (hideCompleted ? " checked" : "") + ">" +
+          " Hide completed requirements" +
+        "</label>" +
+      "</div>";
+
+    const visibleRanks = hideCompleted
+      ? ranksWithData.filter((r) => rankReqs[r].incompleteCount > 0)
+      : ranksWithData;
+
+    if (!visibleRanks.length) {
+      return toolbar +
+        '<div class="empty">All requirements complete across all ranks. 🎉</div>';
+    }
+
+    const sections = visibleRanks.map((rank) => {
+      const info = rankReqs[rank];
+      const isFullyComplete = info.incompleteCount === 0;
+      const isCurrentNext = rank === s.nextRank;
+      const openByDefault = isCurrentNext || (!isFullyComplete && !hideCompleted) || (info.incompleteCount > 0 && hideCompleted);
+
+      const reqsToShow = hideCompleted
+        ? info.reqs.filter((r) => !r.completed)
+        : info.reqs;
+
+      const reqRows = reqsToShow.map((r) =>
+        '<li class="req-item ' + (r.completed ? "req-completed" : "req-incomplete") + '">' +
+          '<span class="req-status" aria-hidden="true">' + (r.completed ? "✓" : "○") + "</span>" +
+          '<span class="req-code">' + esc(r.code) + "</span>" +
+          '<span class="req-text">' + esc(r.text) + "</span>" +
+          (r.completed && r.dateEarned
+            ? '<span class="req-date">' + esc(formatDate(r.dateEarned)) + "</span>"
+            : "") +
+        "</li>"
+      ).join("");
+
+      const summaryCounts = info.completedCount + " of " + info.totalCount + " complete" +
+        (isFullyComplete ? " ✓" : "");
+
+      return '<details class="card collapsible"' + (openByDefault ? " open" : "") + ">" +
         "<summary>" +
           '<span class="collapsible-title">' +
             rankPill(rank) +
-            '<span class="collapsible-counts">' +
-              info.count + " incomplete · " + info.completedCount + " completed" +
-            "</span>" +
+            '<span class="collapsible-counts">' + summaryCounts + "</span>" +
           "</span>" +
         "</summary>" +
-        '<ul class="req-list">' +
-          info.reqs.map((r) =>
-            '<li class="req-item">' +
-              '<span class="req-code">' + esc(r.code) + "</span>" +
-              '<span class="req-text">' + esc(r.text) + "</span>" +
-            "</li>"
-          ).join("") +
-        "</ul>" +
-      "</details>"
-    ).join("");
+        '<ul class="req-list">' + reqRows + "</ul>" +
+        "</details>";
+    }).join("");
+
+    return toolbar + sections;
   }
 
   function renderBadgesTab(s, state) {

@@ -264,12 +264,6 @@ a:hover { text-decoration: underline; }
 }
 .upload-error:empty { display: none; }
 
-.upload-actions {
-  margin-top: var(--space-5);
-  display: flex;
-  gap: var(--space-3);
-}
-
 .instructions {
   margin-top: var(--space-8);
   padding-top: var(--space-5);
@@ -409,12 +403,27 @@ a:hover { text-decoration: underline; }
    Rank distribution row
    ========================================================================= */
 
+.section-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.rank-dist-hint {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.rank-dist-hint a { font-weight: 500; }
+
 .rank-distribution {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
 }
 .rank-dist-item {
+  font: inherit;
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -422,6 +431,20 @@ a:hover { text-decoration: underline; }
   border-radius: var(--radius-md);
   font-size: 13px;
   font-weight: 500;
+  border: 2px solid transparent;
+  transition: border-color 0.15s, transform 0.05s, box-shadow 0.15s;
+}
+.rank-dist-item:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+.rank-dist-item:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.rank-dist-active {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-bg);
 }
 .rank-dist-count {
   background: rgba(0,0,0,0.08);
@@ -700,16 +723,62 @@ a:hover { text-decoration: underline; }
 }
 .collapsible-counts { font-size: 12px; color: var(--color-text-muted); }
 
+.rank-tab-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-3);
+}
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  user-select: none;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.toggle:hover { background: var(--color-surface-alt); }
+.toggle input { cursor: pointer; }
+
 .req-list { padding: var(--space-3) var(--space-5) var(--space-5); }
 .req-item {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--space-3);
   padding: var(--space-2) 0;
   border-bottom: 1px dashed var(--color-border);
   font-size: 14px;
 }
 .req-item:last-child { border-bottom: none; }
+
+.req-status {
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 13px;
+}
+.req-completed .req-status { color: var(--color-success); }
+.req-incomplete .req-status { color: var(--color-text-muted); font-weight: 400; }
+
+.req-completed .req-text {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
+.req-completed .req-code { opacity: 0.6; }
+
+.req-text { flex: 1; }
+.req-date {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .req-code {
   font-family: var(--font-mono);
   font-size: 12px;
@@ -1043,6 +1112,25 @@ window.TR = window.TR || {};
     return parts[1].trim() + " " + parts[0].trim();
   }
 
+  // Title-case patrol names that arrive as ALL CAPS in TroopWebHost exports.
+  // Mixed-case names (e.g., already "Pickles") are left alone.
+  function formatPatrolName(name) {
+    const trimmed = clean(name);
+    if (!trimmed) return trimmed;
+    if (/[A-Z]/.test(trimmed) && !/[a-z]/.test(trimmed)) {
+      return trimmed.toLowerCase().replace(/(^|\s)(\S)/g, (_, sep, c) => sep + c.toUpperCase());
+    }
+    return trimmed;
+  }
+
+  // Scouts to always exclude from the dashboard regardless of file content.
+  // Match against the formatted display name ("First Last").
+  const EXCLUDED_DISPLAY_NAMES = new Set(["Test Scout"]);
+
+  function isExcludedScout(displayNameStr) {
+    return EXCLUDED_DISPLAY_NAMES.has(displayNameStr);
+  }
+
   // ---------------------------------------------------------------------
   // File reading
   // ---------------------------------------------------------------------
@@ -1110,13 +1198,13 @@ window.TR = window.TR || {};
     if (!rows.length) {
       return {
         currentRank: null, nextRank: null, age: null, patrol: null,
-        incompleteRanks: {}, completedRanks: []
+        rankRequirements: {}, completedRanks: []
       };
     }
     const currentRank = clean(rows[0]["Current Rank"]) || null;
     const ageRaw = rows[0]["Age"];
     const age = ageRaw != null && ageRaw !== "" ? parseInt(ageRaw, 10) : null;
-    const patrol = clean(rows[0]["Patrol"]) || null;
+    const patrol = formatPatrolName(rows[0]["Patrol"]) || null;
 
     let nextRank = "Scout";
     if (currentRank && RANKS_ADVANCEMENT.includes(currentRank)) {
@@ -1126,30 +1214,38 @@ window.TR = window.TR || {};
       nextRank = null;
     }
 
-    const incompleteRanks = {};
+    const rankRequirements = {};
     const completedRanks = [];
 
     RANKS_ADVANCEMENT.forEach((rank) => {
       const rankRows = rows.filter((r) => clean(r.Rank) === rank);
       if (!rankRows.length) return;
-      const incomplete = rankRows.filter((r) => isBlank(r["Date Earned"]));
-      const complete = rankRows.filter((r) => !isBlank(r["Date Earned"]));
 
-      if (incomplete.length === 0 && complete.length > 0) {
-        completedRanks.push(rank);
-      } else if (incomplete.length > 0) {
-        incompleteRanks[rank] = {
-          reqs: incomplete.map((r) => ({
-            code: clean(r.Code),
-            text: clean(r.Requirement)
-          })),
-          count: incomplete.length,
-          completedCount: complete.length
+      const reqs = rankRows.map((r) => {
+        const dateEarned = parseDate(r["Date Earned"]);
+        return {
+          code: clean(r.Code),
+          text: clean(r.Requirement),
+          completed: !!dateEarned,
+          dateEarned
         };
+      });
+      const completedCount = reqs.filter((r) => r.completed).length;
+      const incompleteCount = reqs.length - completedCount;
+
+      rankRequirements[rank] = {
+        reqs,
+        totalCount: reqs.length,
+        completedCount,
+        incompleteCount
+      };
+
+      if (incompleteCount === 0 && reqs.length > 0) {
+        completedRanks.push(rank);
       }
     });
 
-    return { currentRank, nextRank, age, patrol, incompleteRanks, completedRanks };
+    return { currentRank, nextRank, age, patrol, rankRequirements, completedRanks };
   }
 
   function parseMbForScout(rows) {
@@ -1245,8 +1341,8 @@ window.TR = window.TR || {};
 
     // Tier 1: Next rank within reach
     const nextRank = scout.nextRank;
-    const remaining = (scout.incompleteRanks && scout.incompleteRanks[nextRank]
-      && scout.incompleteRanks[nextRank].count) || 0;
+    const remaining = (scout.rankRequirements && scout.rankRequirements[nextRank]
+      && scout.rankRequirements[nextRank].incompleteCount) || 0;
     if (nextRank && remaining > 0 && remaining <= 5) {
       actions.push({
         tier: 1,
@@ -1343,9 +1439,10 @@ window.TR = window.TR || {};
         hasRankData: (rByScout[name] || []).length > 0,
         hasMbData: (mByScout[name] || []).length > 0
       };
+      if (isExcludedScout(record.displayName)) return;
       record.priorityActions = generatePriorityActions(record);
       record.totalIncompleteRankReqs =
-        (record.incompleteRanks[record.nextRank] && record.incompleteRanks[record.nextRank].count) || 0;
+        (record.rankRequirements[record.nextRank] && record.rankRequirements[record.nextRank].incompleteCount) || 0;
       record.totalInProgressBadges = mbInfo.inProgress.length;
       record.eagleInProgressCount = mbInfo.eagleInProgressCount;
       record.eagleEarnedCount = mbInfo.eagleEarnedCount;
@@ -1513,7 +1610,7 @@ window.TR = window.TR || {};
     ].filter(Boolean).join("");
 
     const distHtml = state.rankAvailable
-      ? renderRankDistribution(rankCounts)
+      ? renderRankDistribution(rankCounts, state.rankFilter)
       : '<div class="empty">Rank data not available.</div>';
 
     let patrolPillsHtml = "";
@@ -1537,20 +1634,28 @@ window.TR = window.TR || {};
       ? renderRosterTable(scouts, showPatrolColumn, state)
       : '<div class="roster-empty">No scouts found.</div>';
 
+    const rankFilter = state.rankFilter || null;
+    const distHint = rankFilter
+      ? '<span class="rank-dist-hint">Filtering by ' + esc(rankFilter) +
+        ' — <a href="#" data-clear-rank-filter>clear</a></span>'
+      : '<span class="rank-dist-hint muted">Click a rank to filter the roster.</span>';
+
     return '' +
       '<section class="dashboard">' +
         '<header class="dashboard-header">' +
           "<h2>" + esc(title) + "</h2>" +
           '<div class="dashboard-controls">' +
             '<input type="text" id="search-input" class="search-input" placeholder="Search by name…" autocomplete="off">' +
-            (showPatrolColumn ? renderPatrolFilter(state) : "") +
           "</div>" +
         "</header>" +
 
         '<div class="metrics-row">' + metricsHtml + "</div>" +
 
         '<div class="section">' +
-          '<h3 class="section-title">Rank Distribution</h3>' +
+          '<div class="section-title-row">' +
+            '<h3 class="section-title">Rank Distribution</h3>' +
+            distHint +
+          "</div>" +
           distHtml +
         "</div>" +
 
@@ -1563,24 +1668,18 @@ window.TR = window.TR || {};
       "</section>";
   }
 
-  function renderRankDistribution(rankCounts) {
+  function renderRankDistribution(rankCounts, activeRank) {
     const items = RANKS_ADVANCEMENT.map((rank) => {
       const count = rankCounts[rank] || 0;
       if (!count) return "";
-      return '<div class="rank-dist-item ' + RANK_PILL_CLASS[rank] + '">' +
+      const active = activeRank === rank ? " rank-dist-active" : "";
+      return '<button type="button" class="rank-dist-item ' + RANK_PILL_CLASS[rank] + active +
+        '" data-rank-filter="' + esc(rank) + '" aria-pressed="' + (active ? "true" : "false") + '">' +
         '<span class="rank-dist-name">' + esc(rank) + "</span>" +
         '<span class="rank-dist-count">' + count + "</span>" +
-        "</div>";
+        "</button>";
     }).filter(Boolean).join("");
     return '<div class="rank-distribution">' + (items || '<span class="muted">No rank data.</span>') + "</div>";
-  }
-
-  function renderPatrolFilter(state) {
-    const patrols = Object.keys(state.patrols).sort();
-    if (patrols.length <= 1) return "";
-    return '<select id="patrol-filter" class="select"><option value="">All Patrols</option>' +
-      patrols.map((p) => '<option value="' + esc(p) + '">' + esc(p) + "</option>").join("") +
-      "</select>";
   }
 
   function metricCard(label, value) {
@@ -1642,7 +1741,8 @@ window.TR = window.TR || {};
     if (state.badgesAvailable) cells.push('<td class="num">' + (s.eagleInProgressCount || 0) + "</td>");
     if (state.rankAvailable) cells.push('<td class="num">' + (s.age != null ? s.age : "—") + "</td>");
 
-    return '<tr data-search="' + esc(s.displayName.toLowerCase()) + '">' + cells.join("") + "</tr>";
+    return '<tr data-search="' + esc(s.displayName.toLowerCase()) +
+      '" data-rank="' + esc(s.currentRank || "") + '">' + cells.join("") + "</tr>";
   }
 
   function sortScouts(scouts, key, dir) {
@@ -1755,13 +1855,13 @@ window.TR = window.TR || {};
 
   function renderRankProgression(s) {
     const completed = new Set(s.completedRanks || []);
-    const incompleteRanks = s.incompleteRanks || {};
+    const rankReqs = s.rankRequirements || {};
 
     const stepsHtml = RANKS_ADVANCEMENT.map((rank, i) => {
       const isCompleted = completed.has(rank);
       const isCurrent = rank === s.currentRank;
       const isNext = rank === s.nextRank && !isCurrent;
-      const incomplete = incompleteRanks[rank];
+      const info = rankReqs[rank];
       let cls = "step-future";
       if (isCompleted) cls = "step-done";
       else if (isCurrent) cls = "step-current";
@@ -1770,8 +1870,8 @@ window.TR = window.TR || {};
       return '<div class="rank-step ' + cls + '">' +
         '<div class="step-marker">' + (isCompleted ? "✓" : i + 1) + "</div>" +
         '<div class="step-label">' + esc(rank) + "</div>" +
-        (incomplete && !isCompleted
-          ? '<div class="step-sub">' + incomplete.count + " left</div>"
+        (info && !isCompleted && info.incompleteCount > 0
+          ? '<div class="step-sub">' + info.incompleteCount + " left</div>"
           : "") +
         "</div>";
     }).join('<div class="step-connector"></div>');
@@ -1836,33 +1936,67 @@ window.TR = window.TR || {};
     if (!state.rankAvailable) {
       return '<div class="empty">Rank data not available — upload the Rank Requirements Status export.</div>';
     }
-    const entries = Object.entries(s.incompleteRanks || {});
-    if (!entries.length) {
-      const completedCount = (s.completedRanks || []).length;
-      return '<div class="empty">No incomplete rank requirements' +
-        (completedCount ? " — " + completedCount + " ranks completed." : ".") + "</div>";
+    const rankReqs = s.rankRequirements || {};
+    const ranksWithData = RANKS_ADVANCEMENT.filter((r) => rankReqs[r]);
+    if (!ranksWithData.length) {
+      return '<div class="empty">No rank requirement data available.</div>';
     }
-    entries.sort((a, b) => RANKS_ADVANCEMENT.indexOf(a[0]) - RANKS_ADVANCEMENT.indexOf(b[0]));
-    return entries.map(([rank, info]) =>
-      '<details class="card collapsible"' + (rank === s.nextRank ? " open" : "") + ">" +
+
+    const hideCompleted = !!state.hideCompletedReqs;
+    const toolbar =
+      '<div class="rank-tab-toolbar">' +
+        '<label class="toggle">' +
+          '<input type="checkbox" id="hide-completed-reqs"' +
+          (hideCompleted ? " checked" : "") + ">" +
+          " Hide completed requirements" +
+        "</label>" +
+      "</div>";
+
+    const visibleRanks = hideCompleted
+      ? ranksWithData.filter((r) => rankReqs[r].incompleteCount > 0)
+      : ranksWithData;
+
+    if (!visibleRanks.length) {
+      return toolbar +
+        '<div class="empty">All requirements complete across all ranks. 🎉</div>';
+    }
+
+    const sections = visibleRanks.map((rank) => {
+      const info = rankReqs[rank];
+      const isFullyComplete = info.incompleteCount === 0;
+      const isCurrentNext = rank === s.nextRank;
+      const openByDefault = isCurrentNext || (!isFullyComplete && !hideCompleted) || (info.incompleteCount > 0 && hideCompleted);
+
+      const reqsToShow = hideCompleted
+        ? info.reqs.filter((r) => !r.completed)
+        : info.reqs;
+
+      const reqRows = reqsToShow.map((r) =>
+        '<li class="req-item ' + (r.completed ? "req-completed" : "req-incomplete") + '">' +
+          '<span class="req-status" aria-hidden="true">' + (r.completed ? "✓" : "○") + "</span>" +
+          '<span class="req-code">' + esc(r.code) + "</span>" +
+          '<span class="req-text">' + esc(r.text) + "</span>" +
+          (r.completed && r.dateEarned
+            ? '<span class="req-date">' + esc(formatDate(r.dateEarned)) + "</span>"
+            : "") +
+        "</li>"
+      ).join("");
+
+      const summaryCounts = info.completedCount + " of " + info.totalCount + " complete" +
+        (isFullyComplete ? " ✓" : "");
+
+      return '<details class="card collapsible"' + (openByDefault ? " open" : "") + ">" +
         "<summary>" +
           '<span class="collapsible-title">' +
             rankPill(rank) +
-            '<span class="collapsible-counts">' +
-              info.count + " incomplete · " + info.completedCount + " completed" +
-            "</span>" +
+            '<span class="collapsible-counts">' + summaryCounts + "</span>" +
           "</span>" +
         "</summary>" +
-        '<ul class="req-list">' +
-          info.reqs.map((r) =>
-            '<li class="req-item">' +
-              '<span class="req-code">' + esc(r.code) + "</span>" +
-              '<span class="req-text">' + esc(r.text) + "</span>" +
-            "</li>"
-          ).join("") +
-        "</ul>" +
-      "</details>"
-    ).join("");
+        '<ul class="req-list">' + reqRows + "</ul>" +
+        "</details>";
+    }).join("");
+
+    return toolbar + sections;
   }
 
   function renderBadgesTab(s, state) {
@@ -1996,6 +2130,8 @@ window.TR = window.TR || {};
     badgesFileName: null,
     view: { level: "troop", tab: "overview" },
     sort: { key: "displayName", dir: "asc" },
+    rankFilter: null,           // Active rank quick-filter (e.g., "Life") or null
+    hideCompletedReqs: false,   // Ranks tab toggle
     pendingRankRows: null,
     pendingMbRows: null
   };
@@ -2176,6 +2312,8 @@ window.TR = window.TR || {};
   function setView(viewState) {
     state.view = Object.assign({ tab: "overview" }, viewState);
     state.sort = { key: "displayName", dir: "asc" };
+    state.rankFilter = null;
+    state.hideCompletedReqs = false;
     renderAll();
     window.scrollTo({ top: 0, behavior: "instant" });
   }
@@ -2229,6 +2367,25 @@ window.TR = window.TR || {};
       return;
     }
 
+    // Rank distribution quick-filter toggle
+    const rankFilterEl = e.target.closest("[data-rank-filter]");
+    if (rankFilterEl) {
+      const rank = rankFilterEl.dataset.rankFilter;
+      state.rankFilter = state.rankFilter === rank ? null : rank;
+      applyRosterFilters();
+      updateRankFilterUI();
+      return;
+    }
+
+    // "clear" link in the rank-distribution hint
+    if (e.target.closest("[data-clear-rank-filter]")) {
+      e.preventDefault();
+      state.rankFilter = null;
+      applyRosterFilters();
+      updateRankFilterUI();
+      return;
+    }
+
     // Navigation links / pills
     const navEl = e.target.closest("[data-nav]");
     if (navEl) {
@@ -2258,9 +2415,9 @@ window.TR = window.TR || {};
   }
 
   function handleDashboardChange(e) {
-    if (e.target.id === "patrol-filter") {
-      const patrol = e.target.value;
-      if (patrol) setView({ level: "patrol", patrol });
+    if (e.target.id === "hide-completed-reqs") {
+      state.hideCompletedReqs = !!e.target.checked;
+      renderAll();
     }
   }
 
@@ -2291,19 +2448,49 @@ window.TR = window.TR || {};
         th.classList.add("sort-" + state.sort.dir);
       }
     });
-    // Re-apply current search filter
-    const searchInput = $("search-input");
-    if (searchInput && searchInput.value) applyTableSearch(searchInput.value);
+    // Re-apply current filters (search + rank)
+    applyRosterFilters();
   }
 
   function applyTableSearch(query) {
-    const q = (query || "").trim().toLowerCase();
+    // Backwards-compat shim — the search input handler still calls this.
+    applyRosterFilters(query);
+  }
+
+  function applyRosterFilters(searchOverride) {
     const tbody = document.querySelector("#roster-table tbody");
     if (!tbody) return;
+    const searchInput = $("search-input");
+    const rawQuery = searchOverride != null ? searchOverride : (searchInput ? searchInput.value : "");
+    const q = (rawQuery || "").trim().toLowerCase();
+    const rankFilter = state.rankFilter;
+
     Array.from(tbody.children).forEach((tr) => {
       const hay = tr.dataset.search || "";
-      tr.style.display = !q || hay.includes(q) ? "" : "none";
+      const rank = tr.dataset.rank || "";
+      const matchesSearch = !q || hay.includes(q);
+      const matchesRank = !rankFilter || rank === rankFilter;
+      tr.style.display = matchesSearch && matchesRank ? "" : "none";
     });
+  }
+
+  function updateRankFilterUI() {
+    document.querySelectorAll("[data-rank-filter]").forEach((el) => {
+      const isActive = el.dataset.rankFilter === state.rankFilter;
+      el.classList.toggle("rank-dist-active", isActive);
+      el.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+    const hint = document.querySelector(".rank-dist-hint");
+    if (hint) {
+      if (state.rankFilter) {
+        hint.classList.remove("muted");
+        hint.innerHTML = "Filtering by " + TR.render.esc(state.rankFilter) +
+          ' — <a href="#" data-clear-rank-filter>clear</a>';
+      } else {
+        hint.classList.add("muted");
+        hint.textContent = "Click a rank to filter the roster.";
+      }
+    }
   }
 
   // ---------------------------------------------------------------------
