@@ -169,7 +169,7 @@ window.TR = window.TR || {};
       : '<span class="section-hint rank-dist-hint muted">Click a rank to filter the roster.</span>';
 
     const bulkPdfHtml = state.scouts && Object.keys(state.scouts).length
-      ? '<button type="button" id="bulk-pdf-btn" class="btn-secondary">Download PDFs</button>'
+      ? '<button type="button" id="bulk-pdf-btn" class="btn-secondary">Generate PDF</button>'
       : "";
 
     return '' +

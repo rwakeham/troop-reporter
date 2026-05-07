@@ -7,8 +7,6 @@
     "build": "node build.js"
   },
   "devDependencies": {
-    "jspdf": "2.5.1",
-    "jszip": "3.10.1",
     "papaparse": "5.4.1",
     "xlsx": "0.18.5"
   }
