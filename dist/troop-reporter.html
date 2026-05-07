@@ -1817,7 +1817,7 @@ window.TR = window.TR || {};
             "</div>" +
           "</div>" +
           '<div class="scout-header-actions">' +
-            '<button id="scout-pdf-btn" class="btn-secondary" data-scout-pdf="' + esc(s.name) + '">Generate PDF</button>' +
+            '<button id="scout-report-btn" class="btn-secondary" data-scout-report="' + esc(s.name) + '" title="Downloads an HTML file. Open it to view; use your browser\'s File &rarr; Print to save as PDF.">Download Report</button>' +
           "</div>" +
         "</header>" +
 
@@ -2119,9 +2119,12 @@ window.TR = window.TR || {};
 </script>
   <script>
 /* =========================================================================
-   print.js — HTML print-view generator + browser print invocation.
-   Exposes: window.TR.print
-   No external dependencies. The browser's print engine produces the PDF.
+   report.js — Builds a self-contained styled HTML report for one scout
+   and delivers it as a downloadable .html file. The report renders the
+   same in any browser; the user can save as PDF via File > Print if they
+   want a PDF.
+   Exposes: window.TR.report
+   No external dependencies.
    ========================================================================= */
 
 window.TR = window.TR || {};
@@ -2420,7 +2423,7 @@ window.TR = window.TR || {};
   // Print stylesheet
   // ---------------------------------------------------------------------
 
-  const PRINT_STYLES = `
+  const REPORT_STYLES = `
     @page { size: letter; margin: 0.6in; }
     * { box-sizing: border-box; }
     html, body {
@@ -2687,14 +2690,14 @@ window.TR = window.TR || {};
     .empty-section { color: #888780; font-style: italic; }
   `;
 
-  function buildPrintDocument(bodyHtml, title) {
+  function buildReportDocument(bodyHtml, title) {
     return (
       "<!DOCTYPE html>" +
       '<html lang="en">' +
       '<head>' +
         '<meta charset="UTF-8">' +
         '<title>' + esc(title) + '</title>' +
-        '<style>' + PRINT_STYLES + '</style>' +
+        '<style>' + REPORT_STYLES + '</style>' +
       '</head>' +
       '<body>' + bodyHtml + '</body>' +
       '</html>'
@@ -2702,73 +2705,41 @@ window.TR = window.TR || {};
   }
 
   // ---------------------------------------------------------------------
-  // Print invocation
+  // File delivery
   // ---------------------------------------------------------------------
 
-  // Open a hidden iframe, write the print document, fire window.print(),
-  // and clean up after the dialog closes.
-  function printHtmlDocument(html) {
-    return new Promise((resolve, reject) => {
-      const iframe = document.createElement("iframe");
-      iframe.setAttribute("aria-hidden", "true");
-      iframe.style.cssText =
-        "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
-      document.body.appendChild(iframe);
-
-      let cleanedUp = false;
-      const cleanup = () => {
-        if (cleanedUp) return;
-        cleanedUp = true;
-        try { iframe.remove(); } catch (e) { /* ignore */ }
-        resolve();
-      };
-
-      try {
-        // Write the document synchronously. document.write blocks until the
-        // content (including inline styles) is parsed, so the document is
-        // ready by the time close() returns.
-        const doc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
-        if (!doc) throw new Error("iframe has no contentDocument");
-        doc.open();
-        doc.write(html);
-        doc.close();
-
-        const win = iframe.contentWindow;
-        if (!win) throw new Error("iframe has no contentWindow");
-        win.addEventListener("afterprint", cleanup, { once: true });
-        // Defer the print() call one tick so layout pass settles in some browsers.
-        setTimeout(() => {
-          try {
-            win.focus();
-            win.print();
-            // Safety net if afterprint doesn't fire.
-            setTimeout(cleanup, 60000);
-          } catch (err) {
-            cleanedUp = true;
-            try { iframe.remove(); } catch (e) {}
-            reject(err);
-          }
-        }, 0);
-      } catch (err) {
-        cleanedUp = true;
-        try { iframe.remove(); } catch (e) {}
-        reject(err);
-      }
-    });
+  function reportFilename(scout) {
+    const safe = (scout.displayName || scout.name || "scout")
+      .replace(/[^a-z0-9 ]/gi, "_")
+      .replace(/\s+/g, "_");
+    return safe + "_advancement.html";
   }
 
-  function printScoutReport(scout, state) {
-    const html = buildPrintDocument(
+  function downloadHtmlDocument(html, filename) {
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function downloadScoutReport(scout, state) {
+    const html = buildReportDocument(
       buildScoutReport(scout, state),
       "Advancement Report — " + (scout.displayName || scout.name || "Scout")
     );
-    return printHtmlDocument(html);
+    downloadHtmlDocument(html, reportFilename(scout));
   }
 
-  TR.print = {
-    printScoutReport,
+  TR.report = {
+    downloadScoutReport,
     buildScoutReport,
-    buildPrintDocument
+    buildReportDocument,
+    reportFilename
   };
 })();
 
@@ -3028,9 +2999,9 @@ window.TR = window.TR || {};
     }
 
     // Per-scout PDF button (scout detail view)
-    const scoutPdfEl = e.target.closest("[data-scout-pdf]");
-    if (scoutPdfEl) {
-      handleScoutPdfClick(scoutPdfEl);
+    const scoutReportEl = e.target.closest("[data-scout-report]");
+    if (scoutReportEl) {
+      handleScoutReportClick(scoutReportEl);
       return;
     }
 
@@ -3161,26 +3132,20 @@ window.TR = window.TR || {};
   }
 
   // ---------------------------------------------------------------------
-  // PDF export (per-scout)
+  // Per-scout report download
   // ---------------------------------------------------------------------
 
-  function handleScoutPdfClick(btn) {
-    const name = btn.dataset.scoutPdf;
+  function handleScoutReportClick(btn) {
+    const name = btn.dataset.scoutReport;
     const scout = state.scouts[name];
     if (!scout) return;
-    if (!TR.print) { alert("Print module failed to load."); return; }
-    const original = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = "Preparing…";
-    TR.print.printScoutReport(scout, state)
-      .catch((err) => {
-        console.error(err);
-        alert("PDF generation failed: " + (err.message || err));
-      })
-      .then(() => {
-        btn.disabled = false;
-        btn.textContent = original;
-      });
+    if (!TR.report) { alert("Report module failed to load."); return; }
+    try {
+      TR.report.downloadScoutReport(scout, state);
+    } catch (err) {
+      console.error(err);
+      alert("Report download failed: " + (err.message || err));
+    }
   }
 
   // ---------------------------------------------------------------------

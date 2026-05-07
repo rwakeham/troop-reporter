@@ -80,7 +80,7 @@ VENDOR.forEach((v) => {
 [
   ["js/parse.js",  /<script src="js\/parse\.js"><\/script>/],
   ["js/render.js", /<script src="js\/render\.js"><\/script>/],
-  ["js/print.js",  /<script src="js\/print\.js"><\/script>/],
+  ["js/report.js", /<script src="js\/report\.js"><\/script>/],
   ["js/app.js",    /<script src="js\/app\.js"><\/script>/]
 ].forEach(([file, re]) => {
   if (!re.test(html)) {

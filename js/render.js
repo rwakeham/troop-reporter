@@ -341,7 +341,7 @@ window.TR = window.TR || {};
             "</div>" +
           "</div>" +
           '<div class="scout-header-actions">' +
-            '<button id="scout-pdf-btn" class="btn-secondary" data-scout-pdf="' + esc(s.name) + '">Generate PDF</button>' +
+            '<button id="scout-report-btn" class="btn-secondary" data-scout-report="' + esc(s.name) + '" title="Downloads an HTML file. Open it to view; use your browser\'s File &rarr; Print to save as PDF.">Download Report</button>' +
           "</div>" +
         "</header>" +
 
