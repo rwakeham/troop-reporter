@@ -155,7 +155,17 @@ window.TR = window.TR || {};
     }
     return (
       '<section class="report-section">' +
-        '<h2 class="section-heading">Rank Requirements</h2>' +
+        '<div class="section-heading-row">' +
+          '<h2 class="section-heading">Rank Requirements</h2>' +
+          '<div class="section-toolbar" role="toolbar" aria-label="Rank requirements controls">' +
+            '<label class="toolbar-toggle">' +
+              '<input type="checkbox" data-toggle="hide-completed">' +
+              ' Hide completed' +
+            '</label>' +
+            '<button type="button" class="toolbar-btn" data-action="collapse-all">Collapse all</button>' +
+            '<button type="button" class="toolbar-btn" data-action="expand-all">Expand all</button>' +
+          '</div>' +
+        '</div>' +
         ranks.map((rank) => buildRankBlock(rank, rankReqs[rank])).join("") +
       "</section>"
     );
@@ -173,15 +183,16 @@ window.TR = window.TR || {};
       "</tr>"
     ).join("");
 
+    const fullyComplete = info.incompleteCount === 0;
     return (
-      '<div class="rank-block">' +
-        '<div class="rank-block-header">' +
+      '<details class="rank-block" open>' +
+        '<summary class="rank-block-header">' +
           rankPill(rank) +
           '<span class="rank-block-counts">' +
             info.completedCount + " of " + info.totalCount + " complete" +
-            (info.incompleteCount === 0 ? " &#10003;" : "") +
+            (fullyComplete ? " &#10003;" : "") +
           '</span>' +
-        '</div>' +
+        '</summary>' +
         '<table class="report-table">' +
           '<thead><tr>' +
             '<th class="col-status"></th>' +
@@ -191,7 +202,7 @@ window.TR = window.TR || {};
           '</tr></thead>' +
           '<tbody>' + rows + '</tbody>' +
         '</table>' +
-      "</div>"
+      "</details>"
     );
   }
 
@@ -415,14 +426,89 @@ window.TR = window.TR || {};
       margin-top: 6pt;
     }
 
-    .rank-block { margin-bottom: 12pt; page-break-inside: avoid; break-inside: avoid-page; }
-    .rank-block-header {
+    details.rank-block {
+      margin-bottom: 12pt;
+      page-break-inside: avoid;
+      break-inside: avoid-page;
+    }
+    details.rank-block > summary {
+      list-style: none;
+      cursor: pointer;
       display: flex;
       justify-content: space-between;
       align-items: baseline;
+      gap: 8pt;
+      padding: 4pt 6pt;
       margin-bottom: 4pt;
+      border-radius: 3pt;
+      user-select: none;
     }
+    details.rank-block > summary:hover { background: #f7f5ee; }
+    details.rank-block > summary::-webkit-details-marker { display: none; }
+    details.rank-block > summary::before {
+      content: "\\25B8"; /* triangle right */
+      font-size: 9pt;
+      color: #888780;
+      margin-right: 6pt;
+      transition: transform 0.12s;
+      display: inline-block;
+    }
+    details.rank-block[open] > summary::before { transform: rotate(90deg); }
+    .rank-block-header { /* legacy class, harmless */ }
     .rank-block-counts { font-size: 9pt; color: #5f5e5a; }
+
+    /* Toolbar (screen only) */
+    .section-heading-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12pt;
+      flex-wrap: wrap;
+      border-bottom: 0.75pt solid #d3d1c7;
+      padding-bottom: 3pt;
+      margin-bottom: 8pt;
+    }
+    .section-heading-row .section-heading {
+      border-bottom: none;
+      padding-bottom: 0;
+      margin-bottom: 0;
+    }
+    .section-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8pt;
+      font-size: 9pt;
+    }
+    .toolbar-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 4pt;
+      cursor: pointer;
+      user-select: none;
+      color: #5f5e5a;
+    }
+    .toolbar-toggle input { cursor: pointer; }
+    .toolbar-btn {
+      font: inherit;
+      font-size: 9pt;
+      padding: 3pt 8pt;
+      background: white;
+      color: #1f1f1d;
+      border: 0.75pt solid #d3d1c7;
+      border-radius: 3pt;
+      cursor: pointer;
+    }
+    .toolbar-btn:hover { background: #f7f5ee; }
+    .toolbar-btn:focus-visible { outline: 2px solid #185fa5; outline-offset: 1px; }
+
+    /* Hide-completed toggle: scope to rank-block details, not earned MBs etc. */
+    body.hide-completed details.rank-block tr.req-completed { display: none; }
+
+    @media print {
+      .section-toolbar { display: none !important; }
+      details.rank-block > summary { cursor: default; }
+      details.rank-block > summary::before { display: none; }
+    }
 
     table.report-table {
       width: 100%;
@@ -570,6 +656,59 @@ window.TR = window.TR || {};
     .empty-section { color: #888780; font-style: italic; }
   `;
 
+  // Inline JS embedded in every report. Wires up the section toolbar
+  // (hide-completed, expand all, collapse all) and forces all <details>
+  // blocks open just before printing so collapsed sections don't get
+  // omitted from a print-to-PDF.
+  const REPORT_INLINE_JS = `
+    (function () {
+      "use strict";
+      var body = document.body;
+      // Each scout report has its own toolbar; scope queries to the toolbar's
+      // closest ancestor section (the Rank Requirements <section>).
+      function withinScope(toolbar, selector) {
+        var section = toolbar.closest(".report-section");
+        return section ? section.querySelectorAll(selector) : [];
+      }
+      document.querySelectorAll(".section-toolbar").forEach(function (tb) {
+        tb.addEventListener("click", function (e) {
+          var btn = e.target.closest("[data-action]");
+          if (!btn) return;
+          var act = btn.dataset.action;
+          var details = withinScope(tb, "details.rank-block");
+          if (act === "expand-all") {
+            details.forEach(function (d) { d.open = true; });
+          } else if (act === "collapse-all") {
+            details.forEach(function (d) { d.open = false; });
+          }
+        });
+        tb.addEventListener("change", function (e) {
+          var t = e.target.closest("[data-toggle]");
+          if (!t) return;
+          if (t.dataset.toggle === "hide-completed") {
+            body.classList.toggle("hide-completed", !!t.checked);
+          }
+        });
+      });
+      // Make sure all collapsed details are open when printing, then restore.
+      var preOpenSet = null;
+      window.addEventListener("beforeprint", function () {
+        preOpenSet = new Set();
+        document.querySelectorAll("details").forEach(function (d) {
+          if (d.open) preOpenSet.add(d);
+          else d.open = true;
+        });
+      });
+      window.addEventListener("afterprint", function () {
+        if (!preOpenSet) return;
+        document.querySelectorAll("details").forEach(function (d) {
+          if (!preOpenSet.has(d)) d.open = false;
+        });
+        preOpenSet = null;
+      });
+    })();
+  `;
+
   function buildReportDocument(bodyHtml, title) {
     return (
       "<!DOCTYPE html>" +
@@ -579,7 +718,7 @@ window.TR = window.TR || {};
         '<title>' + esc(title) + '</title>' +
         '<style>' + REPORT_STYLES + '</style>' +
       '</head>' +
-      '<body>' + bodyHtml + '</body>' +
+      '<body>' + bodyHtml + '<script>' + REPORT_INLINE_JS + '</script></body>' +
       '</html>'
     );
   }
