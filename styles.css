@@ -403,11 +403,11 @@ a:hover { text-decoration: underline; }
   gap: var(--space-3);
   flex-wrap: wrap;
 }
-.rank-dist-hint {
+.section-hint {
   font-size: 12px;
   color: var(--color-text-secondary);
 }
-.rank-dist-hint a { font-weight: 500; }
+.section-hint a { font-weight: 500; }
 
 .rank-distribution {
   display: flex;

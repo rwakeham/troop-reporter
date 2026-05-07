@@ -215,6 +215,7 @@
     } else if (state.view.level === "scout") {
       dash.innerHTML = TR.render.renderScoutView(state, state.view.scout, state.view.tab);
     }
+    updateBulkPdfButton();
   }
 
   // ---------------------------------------------------------------------
@@ -248,6 +249,19 @@
       }
       // Re-render only the table — preserves the search input value & focus
       rebuildRosterTable();
+      return;
+    }
+
+    // Per-scout PDF button (scout detail view)
+    const scoutPdfEl = e.target.closest("[data-scout-pdf]");
+    if (scoutPdfEl) {
+      handleScoutPdfClick(scoutPdfEl);
+      return;
+    }
+
+    // Bulk PDF export (roster view)
+    if (e.target.closest("#bulk-pdf-btn")) {
+      handleBulkPdfClick();
       return;
     }
 
@@ -295,6 +309,7 @@
   function handleDashboardInput(e) {
     if (e.target.id === "search-input") {
       applyTableSearch(e.target.value);
+      updateBulkPdfButton();
     }
   }
 
@@ -374,6 +389,96 @@
         hint.classList.add("muted");
         hint.textContent = "Click a rank to filter the roster.";
       }
+    }
+    updateBulkPdfButton();
+  }
+
+  // ---------------------------------------------------------------------
+  // PDF export
+  // ---------------------------------------------------------------------
+
+  // Returns the scouts that match the current view + search + rank filter.
+  // Used both for the bulk PDF set and for keeping the bulk button label in sync.
+  function visibleRosterScouts() {
+    let scouts;
+    if (state.view.level === "patrol") {
+      const names = state.patrols[state.view.patrol] || [];
+      scouts = names.map((n) => state.scouts[n]).filter(Boolean);
+    } else {
+      scouts = Object.values(state.scouts);
+    }
+    if (state.rankFilter) {
+      scouts = scouts.filter((s) => s.currentRank === state.rankFilter);
+    }
+    const searchInput = $("search-input");
+    const q = ((searchInput && searchInput.value) || "").trim().toLowerCase();
+    if (q) {
+      scouts = scouts.filter((s) => s.displayName.toLowerCase().includes(q));
+    }
+    return scouts;
+  }
+
+  function updateBulkPdfButton() {
+    const btn = $("bulk-pdf-btn");
+    if (!btn) return;
+    if (btn.dataset.busy === "1") return;
+    const count = visibleRosterScouts().length;
+    btn.disabled = count === 0;
+    btn.textContent = count === 1 ? "Download PDF (1)" : "Download PDFs (" + count + ")";
+  }
+
+  function handleScoutPdfClick(btn) {
+    const name = btn.dataset.scoutPdf;
+    const scout = state.scouts[name];
+    if (!scout) return;
+    if (!TR.pdf) { alert("PDF library failed to load."); return; }
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Generating…";
+    // Yield so the UI updates before the synchronous PDF work
+    setTimeout(() => {
+      try {
+        TR.pdf.downloadScoutPdf(scout, state);
+      } catch (err) {
+        console.error(err);
+        alert("PDF generation failed: " + (err.message || err));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+      }
+    }, 30);
+  }
+
+  async function handleBulkPdfClick() {
+    const btn = $("bulk-pdf-btn");
+    if (!btn) return;
+    if (!TR.pdf) { alert("PDF library failed to load."); return; }
+    const scouts = visibleRosterScouts();
+    if (!scouts.length) return;
+
+    btn.dataset.busy = "1";
+    btn.disabled = true;
+    const restore = () => {
+      delete btn.dataset.busy;
+      btn.disabled = false;
+      updateBulkPdfButton();
+    };
+
+    try {
+      await TR.pdf.downloadScoutsZip(scouts, state, (done, total, name) => {
+        if (done < total) {
+          btn.textContent = "Generating " + (done + 1) + " of " + total +
+            (name ? " — " + name : "") + "…";
+        } else {
+          btn.textContent = "Packaging…";
+        }
+      });
+      btn.textContent = "Done · " + scouts.length + " PDF" + (scouts.length === 1 ? "" : "s");
+      setTimeout(restore, 1500);
+    } catch (err) {
+      console.error(err);
+      alert("Bulk PDF export failed: " + (err.message || err));
+      restore();
     }
   }
 
