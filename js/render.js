@@ -143,14 +143,18 @@ window.TR = window.TR || {};
       if (patrols.length > 1) {
         patrolPillsHtml =
           '<div class="section">' +
-          '<h3 class="section-title">Patrols</h3>' +
-          '<div class="patrol-pills">' +
-          patrols.map((p) =>
-            '<a href="#" class="patrol-pill" data-nav="patrol" data-patrol="' + esc(p) +
-            '">' + esc(p) +
-            ' <span class="patrol-pill-count">' + state.patrols[p].length + "</span></a>"
-          ).join("") +
-          "</div></div>";
+            '<div class="section-title-row">' +
+              '<h3 class="section-title">Patrols</h3>' +
+              '<span class="section-hint muted">Click a patrol to filter the roster.</span>' +
+            "</div>" +
+            '<div class="patrol-pills">' +
+              patrols.map((p) =>
+                '<a href="#" class="patrol-pill" data-nav="patrol" data-patrol="' + esc(p) +
+                '">' + esc(p) +
+                ' <span class="patrol-pill-count">' + state.patrols[p].length + "</span></a>"
+              ).join("") +
+            "</div>" +
+          "</div>";
       }
     }
 
@@ -160,9 +164,13 @@ window.TR = window.TR || {};
 
     const rankFilter = state.rankFilter || null;
     const distHint = rankFilter
-      ? '<span class="rank-dist-hint">Filtering by ' + esc(rankFilter) +
+      ? '<span class="section-hint rank-dist-hint">Filtering by ' + esc(rankFilter) +
         ' — <a href="#" data-clear-rank-filter>clear</a></span>'
-      : '<span class="rank-dist-hint muted">Click a rank to filter the roster.</span>';
+      : '<span class="section-hint rank-dist-hint muted">Click a rank to filter the roster.</span>';
+
+    const bulkPdfHtml = state.scouts && Object.keys(state.scouts).length
+      ? '<button type="button" id="bulk-pdf-btn" class="btn-secondary">Download PDFs</button>'
+      : "";
 
     return '' +
       '<section class="dashboard">' +
@@ -170,6 +178,7 @@ window.TR = window.TR || {};
           "<h2>" + esc(title) + "</h2>" +
           '<div class="dashboard-controls">' +
             '<input type="text" id="search-input" class="search-input" placeholder="Search by name…" autocomplete="off">' +
+            bulkPdfHtml +
           "</div>" +
         "</header>" +
 
@@ -337,7 +346,7 @@ window.TR = window.TR || {};
             "</div>" +
           "</div>" +
           '<div class="scout-header-actions">' +
-            '<button class="btn-secondary" disabled title="PDF export coming in Phase 2">Generate PDF</button>' +
+            '<button id="scout-pdf-btn" class="btn-secondary" data-scout-pdf="' + esc(s.name) + '">Generate PDF</button>' +
           "</div>" +
         "</header>" +
 
