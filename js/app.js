@@ -5,11 +5,6 @@
 (function () {
   "use strict";
 
-  const SAMPLE_FILES = [
-    "samples/Rank Requirements Status 202656204013.CSV",
-    "samples/Merit Badges 202656204411.CSV"
-  ];
-
   const state = {
     scouts: {},
     patrols: {},
@@ -45,7 +40,6 @@
   function setupUpload() {
     const dropzone = $("dropzone");
     const input = $("file-input");
-    const sampleBtn = $("sample-btn");
 
     input.addEventListener("change", (e) => {
       handleFiles(Array.from(e.target.files || []));
@@ -81,8 +75,6 @@
       const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
       handleFiles(files);
     });
-
-    sampleBtn.addEventListener("click", loadSampleData);
   }
 
   async function handleFiles(files) {
@@ -111,29 +103,6 @@
 
     if (state.pendingRankRows || state.pendingMbRows) {
       buildAndShow();
-    }
-  }
-
-  async function loadSampleData() {
-    setUploadError("");
-    try {
-      const responses = await Promise.all(SAMPLE_FILES.map((path) => fetch(path)));
-      for (const r of responses) {
-        if (!r.ok) throw new Error("HTTP " + r.status + " for " + r.url);
-      }
-      const blobs = await Promise.all(responses.map((r) => r.blob()));
-      const files = blobs.map((blob, i) => {
-        const path = SAMPLE_FILES[i];
-        const name = path.split("/").pop();
-        return new File([blob], name, { type: "text/csv" });
-      });
-      await handleFiles(files);
-    } catch (err) {
-      setUploadError(
-        "Could not load sample data: " + (err.message || err) +
-        ". Sample loading needs the page served over HTTP — try a local server " +
-        "(e.g. `python3 -m http.server` in the repo root) or drop the files manually."
-      );
     }
   }
 
