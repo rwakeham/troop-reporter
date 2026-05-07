@@ -252,9 +252,9 @@
     }
 
     // Per-scout PDF button (scout detail view)
-    const scoutPdfEl = e.target.closest("[data-scout-pdf]");
-    if (scoutPdfEl) {
-      handleScoutPdfClick(scoutPdfEl);
+    const scoutReportEl = e.target.closest("[data-scout-report]");
+    if (scoutReportEl) {
+      handleScoutReportClick(scoutReportEl);
       return;
     }
 
@@ -385,26 +385,20 @@
   }
 
   // ---------------------------------------------------------------------
-  // PDF export (per-scout)
+  // Per-scout report download
   // ---------------------------------------------------------------------
 
-  function handleScoutPdfClick(btn) {
-    const name = btn.dataset.scoutPdf;
+  function handleScoutReportClick(btn) {
+    const name = btn.dataset.scoutReport;
     const scout = state.scouts[name];
     if (!scout) return;
-    if (!TR.print) { alert("Print module failed to load."); return; }
-    const original = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = "Preparing…";
-    TR.print.printScoutReport(scout, state)
-      .catch((err) => {
-        console.error(err);
-        alert("PDF generation failed: " + (err.message || err));
-      })
-      .then(() => {
-        btn.disabled = false;
-        btn.textContent = original;
-      });
+    if (!TR.report) { alert("Report module failed to load."); return; }
+    try {
+      TR.report.downloadScoutReport(scout, state);
+    } catch (err) {
+      console.error(err);
+      alert("Report download failed: " + (err.message || err));
+    }
   }
 
   // ---------------------------------------------------------------------
