@@ -595,8 +595,7 @@ window.TR = window.TR || {};
     return safe + "_advancement.html";
   }
 
-  function downloadHtmlDocument(html, filename) {
-    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  function downloadBlob(blob, filename) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -607,17 +606,52 @@ window.TR = window.TR || {};
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  function downloadScoutReport(scout, state) {
-    const html = buildReportDocument(
+  function downloadHtmlDocument(html, filename) {
+    downloadBlob(new Blob([html], { type: "text/html;charset=utf-8" }), filename);
+  }
+
+  function buildScoutReportHtml(scout, state) {
+    return buildReportDocument(
       buildScoutReport(scout, state),
       "Advancement Report — " + (scout.displayName || scout.name || "Scout")
     );
-    downloadHtmlDocument(html, reportFilename(scout));
+  }
+
+  function downloadScoutReport(scout, state) {
+    downloadHtmlDocument(buildScoutReportHtml(scout, state), reportFilename(scout));
+  }
+
+  async function downloadScoutReportsZip(scouts, state, onProgress) {
+    if (!scouts || !scouts.length) return;
+    if (typeof window.JSZip === "undefined") {
+      throw new Error("JSZip library not available");
+    }
+    const zip = new window.JSZip();
+    for (let i = 0; i < scouts.length; i++) {
+      const scout = scouts[i];
+      if (onProgress) onProgress(i, scouts.length, scout.displayName);
+      try {
+        zip.file(reportFilename(scout), buildScoutReportHtml(scout, state));
+      } catch (err) {
+        console.error("Report build failed for", scout.displayName, err);
+      }
+      // Yield to keep the UI responsive on large rosters
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    if (onProgress) onProgress(scouts.length, scouts.length, null);
+    // generateAsync('blob') has interop quirks in some environments;
+    // produce a uint8array and wrap in a Blob ourselves.
+    const bytes = await zip.generateAsync({ type: "uint8array" });
+    const zipBlob = new Blob([bytes], { type: "application/zip" });
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadBlob(zipBlob, "advancement_reports_" + stamp + ".zip");
   }
 
   TR.report = {
     downloadScoutReport,
+    downloadScoutReportsZip,
     buildScoutReport,
+    buildScoutReportHtml,
     buildReportDocument,
     reportFilename
   };
