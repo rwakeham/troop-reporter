@@ -1,0 +1,661 @@
+/* =========================================================================
+   print.js — HTML print-view generator + browser print invocation.
+   Exposes: window.TR.print
+   No external dependencies. The browser's print engine produces the PDF.
+   ========================================================================= */
+
+window.TR = window.TR || {};
+
+(function () {
+  "use strict";
+
+  const TR = window.TR;
+  const RANKS_ADVANCEMENT = TR.parse.RANKS_ADVANCEMENT;
+
+  const RANK_PILL_CLASS = {
+    "Scout": "rank-scout",
+    "Tenderfoot": "rank-tenderfoot",
+    "Second Class": "rank-second-class",
+    "First Class": "rank-first-class",
+    "Star": "rank-star",
+    "Life": "rank-life",
+    "Eagle": "rank-eagle"
+  };
+
+  // ---------------------------------------------------------------------
+  // Small helpers
+  // ---------------------------------------------------------------------
+
+  function esc(s) {
+    if (s == null) return "";
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function formatDate(d) {
+    if (!d) return "";
+    const date = d instanceof Date ? d : new Date(d);
+    if (isNaN(date)) return "";
+    return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  }
+
+  function rankPill(rank) {
+    if (!rank) return '<span class="pill pill-muted">—</span>';
+    const cls = RANK_PILL_CLASS[rank] || "rank-unknown";
+    return '<span class="pill ' + cls + '">' + esc(rank) + "</span>";
+  }
+
+  // ---------------------------------------------------------------------
+  // Section builders
+  // ---------------------------------------------------------------------
+
+  function buildHeader(scout) {
+    const meta = [];
+    if (scout.age != null) meta.push("Age " + scout.age);
+    if (scout.patrol) meta.push("Patrol: " + esc(scout.patrol));
+    if (scout.currentRank) meta.push("Current rank: " + esc(scout.currentRank));
+    if (scout.nextRank && scout.nextRank !== scout.currentRank) {
+      meta.push("Working toward: " + esc(scout.nextRank));
+    }
+    return (
+      '<header class="report-header">' +
+        '<div class="report-titles">' +
+          '<h1>' + esc(scout.displayName || scout.name || "Scout") + '</h1>' +
+          '<div class="report-subtitle">BSA Advancement Report</div>' +
+        '</div>' +
+        '<div class="report-meta">' + esc(formatDate(new Date())) + '</div>' +
+      '</header>' +
+      (meta.length ? '<div class="meta-line">' + meta.join(" &middot; ") + "</div>" : "")
+    );
+  }
+
+  function buildMetricsGrid(scout, state) {
+    const cards = [];
+    if (state.rankAvailable) {
+      cards.push(metricCard("Current Rank", scout.currentRank || "—"));
+      cards.push(metricCard(
+        "Next Rank",
+        (scout.nextRank || "—") + " — " + (scout.totalIncompleteRankReqs || 0) + " reqs"
+      ));
+    }
+    if (state.badgesAvailable) {
+      const earnedCount = (scout.meritBadges && scout.meritBadges.earned.length) || 0;
+      cards.push(metricCard(
+        "Merit Badges Earned",
+        earnedCount + " (" + (scout.eagleEarnedCount || 0) + " Eagle)"
+      ));
+      cards.push(metricCard(
+        "Merit Badges In Progress",
+        (scout.totalInProgressBadges || 0) + " (" + (scout.eagleInProgressCount || 0) + " Eagle)"
+      ));
+    }
+    if (!cards.length) return "";
+    return '<div class="metrics-grid">' + cards.join("") + "</div>";
+  }
+
+  function metricCard(label, value) {
+    return (
+      '<div class="metric-card">' +
+        '<div class="metric-value">' + esc(value) + '</div>' +
+        '<div class="metric-label">' + esc(label) + '</div>' +
+      '</div>'
+    );
+  }
+
+  function buildEagleRoadmap(scout, state) {
+    if (!state.badgesAvailable || !scout.eagleRoadmap) return "";
+    const r = scout.eagleRoadmap;
+    const stats = [
+      ["Eagle Earned", r.eagleBadgesEarned || 0],
+      ["Eagle In Progress", r.eagleBadgesInProgress || 0],
+      ["Eagle Not Started", r.eagleBadgesNotStarted || 0],
+      ["Non-Eagle Earned", r.nonEagleBadgesEarned || 0],
+      ["Total Earned", r.totalBadgesEarned || 0],
+      ["Still Needed", r.badgesNeededForEagle || 0]
+    ].map(([label, val]) =>
+      '<div class="eagle-stat">' +
+        '<div class="eagle-stat-value">' + esc(val) + '</div>' +
+        '<div class="eagle-stat-label">' + esc(label) + '</div>' +
+      '</div>'
+    ).join("");
+
+    const unstarted = r.unstartedEagleBadges || [];
+    const unstartedHtml = unstarted.length
+      ? '<div class="eagle-unstarted"><strong>Unstarted Eagle-required:</strong> ' +
+        unstarted.map(esc).join(" &middot; ") + "</div>"
+      : "";
+
+    return (
+      '<section class="report-section">' +
+        '<h2 class="section-heading">Eagle Scout Roadmap</h2>' +
+        '<div class="eagle-roadmap">' + stats + '</div>' +
+        unstartedHtml +
+      "</section>"
+    );
+  }
+
+  function buildRankRequirements(scout, state) {
+    if (!state.rankAvailable) return "";
+    const rankReqs = scout.rankRequirements || {};
+    const ranks = RANKS_ADVANCEMENT.filter((r) => rankReqs[r]);
+    if (!ranks.length) {
+      return (
+        '<section class="report-section">' +
+          '<h2 class="section-heading">Rank Requirements</h2>' +
+          '<p class="empty-section">No rank requirement data available.</p>' +
+        "</section>"
+      );
+    }
+    return (
+      '<section class="report-section">' +
+        '<h2 class="section-heading">Rank Requirements</h2>' +
+        ranks.map((rank) => buildRankBlock(rank, rankReqs[rank])).join("") +
+      "</section>"
+    );
+  }
+
+  function buildRankBlock(rank, info) {
+    const rows = info.reqs.map((r) =>
+      '<tr class="' + (r.completed ? "req-completed" : "req-incomplete") + '">' +
+        '<td class="req-status">' + (r.completed ? "&#10003;" : "&#9675;") + '</td>' +
+        '<td class="req-code">' + esc(r.code) + '</td>' +
+        '<td class="req-text">' + esc(r.text) + '</td>' +
+        '<td class="req-date">' +
+          (r.completed && r.dateEarned ? esc(formatDate(r.dateEarned)) : "") +
+        '</td>' +
+      "</tr>"
+    ).join("");
+
+    return (
+      '<div class="rank-block">' +
+        '<div class="rank-block-header">' +
+          rankPill(rank) +
+          '<span class="rank-block-counts">' +
+            info.completedCount + " of " + info.totalCount + " complete" +
+            (info.incompleteCount === 0 ? " &#10003;" : "") +
+          '</span>' +
+        '</div>' +
+        '<table class="report-table">' +
+          '<thead><tr>' +
+            '<th class="col-status"></th>' +
+            '<th class="col-code">Code</th>' +
+            '<th class="col-text">Requirement</th>' +
+            '<th class="col-date">Date</th>' +
+          '</tr></thead>' +
+          '<tbody>' + rows + '</tbody>' +
+        '</table>' +
+      "</div>"
+    );
+  }
+
+  function buildMeritBadges(scout, state) {
+    if (!state.badgesAvailable) return "";
+    const mb = scout.meritBadges || { inProgress: [], earned: [] };
+    const eagleIp = (mb.inProgress || []).filter((b) => b.isEagle).sort((a, b) => b.pctComplete - a.pctComplete);
+    const nonEagleIp = (mb.inProgress || []).filter((b) => !b.isEagle).sort((a, b) => b.pctComplete - a.pctComplete);
+    const earned = [...(mb.earned || [])].sort((a, b) => {
+      if (a.isEagle !== b.isEagle) return a.isEagle ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    if (!eagleIp.length && !nonEagleIp.length && !earned.length) {
+      return (
+        '<section class="report-section">' +
+          '<h2 class="section-heading">Merit Badges</h2>' +
+          '<p class="empty-section">No merit badge activity recorded.</p>' +
+        "</section>"
+      );
+    }
+
+    let html = '<section class="report-section"><h2 class="section-heading">Merit Badges</h2>';
+    if (eagleIp.length) {
+      html += '<h3 class="subsection-heading">Eagle-Required In Progress</h3>';
+      html += eagleIp.map(badgeBlock).join("");
+    }
+    if (nonEagleIp.length) {
+      html += '<h3 class="subsection-heading">In Progress</h3>';
+      html += nonEagleIp.map(badgeBlock).join("");
+    }
+    if (earned.length) {
+      html += '<h3 class="subsection-heading">Earned (' + earned.length + ')</h3>';
+      html += '<ul class="earned-list">' + earned.map(earnedRow).join("") + '</ul>';
+    }
+    html += "</section>";
+    return html;
+  }
+
+  function badgeBlock(b) {
+    const total = b.completedCount + b.uncompletedCount;
+    const pct = Math.round(b.pctComplete);
+    return (
+      '<div class="badge-block">' +
+        '<div class="badge-block-header">' +
+          '<span class="badge-name">' + esc(b.name) +
+            (b.isEagle ? ' <span class="pill pill-eagle">Eagle</span>' : "") +
+          '</span>' +
+          '<span class="badge-progress-text">' +
+            b.completedCount + " of " + total + " (" + pct + "%)" +
+          '</span>' +
+        '</div>' +
+        '<div class="progress-bar">' +
+          '<div class="progress-fill" style="width:' + pct + '%"></div>' +
+        '</div>' +
+        (b.counselor ? '<div class="badge-meta">Counselor: ' + esc(b.counselor) + '</div>' : "") +
+        (b.comment ? '<div class="badge-comment">' + esc(b.comment) + '</div>' : "") +
+      "</div>"
+    );
+  }
+
+  function earnedRow(b) {
+    return (
+      '<li class="earned-item">' +
+        '<span class="earned-mark">' + (b.isEagle ? "&#9733;" : "") + '</span>' +
+        '<span class="earned-name">' + esc(b.name) + '</span>' +
+        '<span class="earned-date">' + (b.awardedDate ? esc(formatDate(b.awardedDate)) : "") + '</span>' +
+      "</li>"
+    );
+  }
+
+  function buildPriorityActions(scout) {
+    const actions = scout.priorityActions || [];
+    if (!actions.length) return "";
+    return (
+      '<section class="report-section">' +
+        '<h2 class="section-heading">Prioritized Action Plan</h2>' +
+        '<ol class="priority-list">' +
+          actions.map((a, i) =>
+            '<li class="priority-item priority-tier-' + (a.tier || 1) + '">' +
+              '<span class="priority-num">' + (i + 1) + '</span>' +
+              '<div class="priority-body">' +
+                '<div class="priority-title">' + esc(a.title) + '</div>' +
+                '<div class="priority-explanation">' + esc(a.explanation) + '</div>' +
+                (a.counselor ? '<div class="priority-meta">Counselor: ' + esc(a.counselor) + '</div>' : "") +
+                (a.effort ? '<div class="priority-meta">' + esc(a.effort) + '</div>' : "") +
+              '</div>' +
+            '</li>'
+          ).join("") +
+        '</ol>' +
+      "</section>"
+    );
+  }
+
+  function buildScoutReport(scout, state) {
+    return (
+      '<article class="scout-report">' +
+        buildHeader(scout) +
+        buildMetricsGrid(scout, state) +
+        buildEagleRoadmap(scout, state) +
+        buildRankRequirements(scout, state) +
+        buildMeritBadges(scout, state) +
+        buildPriorityActions(scout) +
+      '</article>'
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // Print stylesheet
+  // ---------------------------------------------------------------------
+
+  const PRINT_STYLES = `
+    @page { size: letter; margin: 0.6in; }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: white;
+      color: #1f1f1d;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.45;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    body { padding: 14pt 0; }
+    h1, h2, h3 { margin: 0; font-weight: 700; }
+    p { margin: 0; }
+    ul, ol { margin: 0; padding: 0; list-style: none; }
+
+    .scout-report { padding: 0 16pt; page-break-after: always; break-after: page; }
+    .scout-report:last-child { page-break-after: auto; break-after: auto; }
+
+    .report-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 2pt solid #185fa5;
+      padding-bottom: 8pt;
+      margin-bottom: 12pt;
+    }
+    .report-titles h1 { font-size: 24pt; line-height: 1.1; }
+    .report-subtitle { color: #5f5e5a; font-size: 10pt; margin-top: 2pt; }
+    .report-meta { color: #5f5e5a; font-size: 9pt; }
+
+    .meta-line {
+      font-size: 10pt;
+      color: #1f1f1d;
+      margin-bottom: 14pt;
+    }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8pt;
+      margin-bottom: 14pt;
+    }
+    .metric-card {
+      border: 0.75pt solid #d3d1c7;
+      border-radius: 4pt;
+      padding: 8pt 12pt;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .metric-value { font-size: 16pt; font-weight: 700; line-height: 1.2; }
+    .metric-label {
+      font-size: 7.5pt;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #888780;
+      margin-top: 2pt;
+    }
+
+    .report-section { margin-top: 14pt; }
+    .section-heading {
+      font-size: 12pt;
+      border-bottom: 0.75pt solid #d3d1c7;
+      padding-bottom: 3pt;
+      margin-bottom: 8pt;
+      page-break-after: avoid;
+      break-after: avoid;
+    }
+    .subsection-heading {
+      font-size: 10pt;
+      color: #5f5e5a;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin: 10pt 0 4pt;
+      page-break-after: avoid;
+      break-after: avoid;
+    }
+
+    .eagle-roadmap {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 4pt;
+      margin-bottom: 8pt;
+    }
+    .eagle-stat {
+      background: #f1efe8;
+      padding: 6pt 4pt;
+      text-align: center;
+      border-radius: 3pt;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .eagle-stat-value { font-size: 13pt; font-weight: 700; line-height: 1.1; }
+    .eagle-stat-label {
+      font-size: 6.5pt;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #888780;
+      margin-top: 2pt;
+    }
+    .eagle-unstarted {
+      background: #faeeda;
+      color: #633806;
+      padding: 6pt 8pt;
+      border-radius: 3pt;
+      font-size: 9pt;
+      margin-top: 6pt;
+    }
+
+    .rank-block { margin-bottom: 12pt; page-break-inside: avoid; break-inside: avoid-page; }
+    .rank-block-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 4pt;
+    }
+    .rank-block-counts { font-size: 9pt; color: #5f5e5a; }
+
+    table.report-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 9.5pt;
+    }
+    .report-table thead th {
+      background: #185fa5;
+      color: white;
+      text-align: left;
+      padding: 4pt 8pt;
+      font-size: 8pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .report-table tbody td {
+      padding: 3.5pt 8pt;
+      border-bottom: 0.4pt solid #d3d1c7;
+      vertical-align: top;
+    }
+    .report-table tbody tr:nth-child(even) td { background: #f7f5ee; }
+
+    .col-status, .req-status { width: 18pt; text-align: center; }
+    .col-code, .req-code {
+      width: 60pt;
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 8.5pt;
+      color: #5f5e5a;
+    }
+    .col-date, .req-date {
+      width: 78pt;
+      text-align: right;
+      color: #888780;
+      font-size: 8.5pt;
+    }
+    .req-completed .req-status { color: #1d9e75; font-weight: 700; }
+    .req-incomplete .req-status { color: #888780; }
+    .req-completed .req-text {
+      color: #888780;
+      text-decoration: line-through;
+    }
+
+    .badge-block {
+      border: 0.75pt solid #d3d1c7;
+      border-radius: 4pt;
+      padding: 8pt 10pt;
+      margin-bottom: 6pt;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .badge-block-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 4pt;
+      gap: 8pt;
+    }
+    .badge-name { font-weight: 700; font-size: 11pt; }
+    .badge-progress-text { font-size: 9pt; color: #5f5e5a; white-space: nowrap; }
+    .progress-bar {
+      height: 5pt;
+      background: #f1efe8;
+      border-radius: 3pt;
+      overflow: hidden;
+      margin-bottom: 4pt;
+    }
+    .progress-fill { height: 100%; background: #185fa5; }
+    .badge-meta { font-size: 9pt; color: #5f5e5a; }
+    .badge-comment {
+      font-size: 9pt;
+      color: #5f5e5a;
+      font-style: italic;
+      border-left: 1.5pt solid #d3d1c7;
+      padding-left: 6pt;
+      margin-top: 4pt;
+    }
+
+    .earned-list {
+      column-count: 2;
+      column-gap: 16pt;
+      font-size: 9.5pt;
+    }
+    .earned-item {
+      break-inside: avoid;
+      display: flex;
+      gap: 4pt;
+      padding: 2pt 0;
+      border-bottom: 0.4pt dashed #e2dfd4;
+    }
+    .earned-mark { width: 10pt; color: #ba7517; font-size: 10pt; flex-shrink: 0; }
+    .earned-name { flex: 1; }
+    .earned-date { color: #888780; font-size: 8.5pt; }
+
+    .priority-list { display: flex; flex-direction: column; gap: 6pt; }
+    .priority-item {
+      display: flex;
+      gap: 8pt;
+      padding: 8pt;
+      background: #f7f5ee;
+      border-left: 3pt solid #d3d1c7;
+      border-radius: 3pt;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .priority-tier-1 { border-left-color: #a32d2d; }
+    .priority-tier-2 { border-left-color: #ba7517; }
+    .priority-tier-3 { border-left-color: #185fa5; }
+    .priority-num {
+      flex-shrink: 0;
+      width: 22pt;
+      height: 22pt;
+      line-height: 22pt;
+      text-align: center;
+      border-radius: 11pt;
+      color: white;
+      font-weight: 700;
+      font-size: 11pt;
+    }
+    .priority-tier-1 .priority-num { background: #a32d2d; }
+    .priority-tier-2 .priority-num { background: #ba7517; }
+    .priority-tier-3 .priority-num { background: #185fa5; }
+    .priority-title { font-weight: 700; font-size: 11pt; margin-bottom: 1pt; }
+    .priority-explanation { color: #5f5e5a; font-size: 9.5pt; }
+    .priority-meta { color: #888780; font-size: 8.5pt; margin-top: 1pt; }
+
+    .pill {
+      display: inline-block;
+      padding: 1.5pt 7pt;
+      border-radius: 9pt;
+      font-size: 8.5pt;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    .pill-muted { background: #f1efe8; color: #888780; }
+    .pill-eagle { background: #faeeda; color: #633806; }
+    .rank-scout        { background: #e8d5b7; color: #5c4a2a; }
+    .rank-tenderfoot   { background: #d4e8d0; color: #2d5a27; }
+    .rank-second-class { background: #d0dde8; color: #2a4a6b; }
+    .rank-first-class  { background: #e8d0d0; color: #6b2a2a; }
+    .rank-star         { background: #e8e2d0; color: #6b5a2a; }
+    .rank-life         { background: #d8d0e8; color: #4a2a6b; }
+    .rank-eagle        { background: #f0e6c8; color: #6b4a00; }
+
+    .empty-section { color: #888780; font-style: italic; }
+  `;
+
+  function buildPrintDocument(bodyHtml, title) {
+    return (
+      "<!DOCTYPE html>" +
+      '<html lang="en">' +
+      '<head>' +
+        '<meta charset="UTF-8">' +
+        '<title>' + esc(title) + '</title>' +
+        '<style>' + PRINT_STYLES + '</style>' +
+      '</head>' +
+      '<body>' + bodyHtml + '</body>' +
+      '</html>'
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // Print invocation
+  // ---------------------------------------------------------------------
+
+  // Open a hidden iframe, write the print document, fire window.print(),
+  // and clean up after the dialog closes.
+  function printHtmlDocument(html) {
+    return new Promise((resolve, reject) => {
+      const iframe = document.createElement("iframe");
+      iframe.setAttribute("aria-hidden", "true");
+      iframe.style.cssText =
+        "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
+      document.body.appendChild(iframe);
+
+      let cleanedUp = false;
+      const cleanup = () => {
+        if (cleanedUp) return;
+        cleanedUp = true;
+        try { iframe.remove(); } catch (e) { /* ignore */ }
+        resolve();
+      };
+
+      try {
+        // Write the document synchronously. document.write blocks until the
+        // content (including inline styles) is parsed, so the document is
+        // ready by the time close() returns.
+        const doc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
+        if (!doc) throw new Error("iframe has no contentDocument");
+        doc.open();
+        doc.write(html);
+        doc.close();
+
+        const win = iframe.contentWindow;
+        if (!win) throw new Error("iframe has no contentWindow");
+        win.addEventListener("afterprint", cleanup, { once: true });
+        // Defer the print() call one tick so layout pass settles in some browsers.
+        setTimeout(() => {
+          try {
+            win.focus();
+            win.print();
+            // Safety net if afterprint doesn't fire.
+            setTimeout(cleanup, 60000);
+          } catch (err) {
+            cleanedUp = true;
+            try { iframe.remove(); } catch (e) {}
+            reject(err);
+          }
+        }, 0);
+      } catch (err) {
+        cleanedUp = true;
+        try { iframe.remove(); } catch (e) {}
+        reject(err);
+      }
+    });
+  }
+
+  function printScoutReport(scout, state) {
+    const html = buildPrintDocument(
+      buildScoutReport(scout, state),
+      "Advancement Report — " + (scout.displayName || scout.name || "Scout")
+    );
+    return printHtmlDocument(html);
+  }
+
+  function printScoutReports(scouts, state) {
+    if (!scouts || !scouts.length) return Promise.resolve();
+    const body = scouts.map((s) => buildScoutReport(s, state)).join("");
+    const title = "Advancement Reports (" + scouts.length + ")";
+    return printHtmlDocument(buildPrintDocument(body, title));
+  }
+
+  TR.print = {
+    printScoutReport,
+    printScoutReports,
+    buildScoutReport,
+    buildPrintDocument
+  };
+})();

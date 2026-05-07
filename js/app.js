@@ -424,40 +424,41 @@
     if (btn.dataset.busy === "1") return;
     const count = visibleRosterScouts().length;
     btn.disabled = count === 0;
-    btn.textContent = count === 1 ? "Download PDF (1)" : "Download PDFs (" + count + ")";
+    btn.textContent = "Generate PDF" + (count > 0 ? " (" + count + ")" : "");
+    btn.title = count <= 1
+      ? "Open the browser print dialog. Save as PDF from there."
+      : "Open the browser print dialog with all " + count + " scouts in one document. Save as PDF from there.";
   }
 
   function handleScoutPdfClick(btn) {
     const name = btn.dataset.scoutPdf;
     const scout = state.scouts[name];
     if (!scout) return;
-    if (!TR.pdf) { alert("PDF library failed to load."); return; }
+    if (!TR.print) { alert("Print module failed to load."); return; }
     const original = btn.textContent;
     btn.disabled = true;
-    btn.textContent = "Generating…";
-    // Yield so the UI updates before the synchronous PDF work
-    setTimeout(() => {
-      try {
-        TR.pdf.downloadScoutPdf(scout, state);
-      } catch (err) {
+    btn.textContent = "Preparing…";
+    TR.print.printScoutReport(scout, state)
+      .catch((err) => {
         console.error(err);
         alert("PDF generation failed: " + (err.message || err));
-      } finally {
+      })
+      .then(() => {
         btn.disabled = false;
         btn.textContent = original;
-      }
-    }, 30);
+      });
   }
 
   async function handleBulkPdfClick() {
     const btn = $("bulk-pdf-btn");
     if (!btn) return;
-    if (!TR.pdf) { alert("PDF library failed to load."); return; }
+    if (!TR.print) { alert("Print module failed to load."); return; }
     const scouts = visibleRosterScouts();
     if (!scouts.length) return;
 
     btn.dataset.busy = "1";
     btn.disabled = true;
+    btn.textContent = "Preparing " + scouts.length + " scout" + (scouts.length === 1 ? "" : "s") + "…";
     const restore = () => {
       delete btn.dataset.busy;
       btn.disabled = false;
@@ -465,19 +466,11 @@
     };
 
     try {
-      await TR.pdf.downloadScoutsZip(scouts, state, (done, total, name) => {
-        if (done < total) {
-          btn.textContent = "Generating " + (done + 1) + " of " + total +
-            (name ? " — " + name : "") + "…";
-        } else {
-          btn.textContent = "Packaging…";
-        }
-      });
-      btn.textContent = "Done · " + scouts.length + " PDF" + (scouts.length === 1 ? "" : "s");
-      setTimeout(restore, 1500);
+      await TR.print.printScoutReports(scouts, state);
     } catch (err) {
       console.error(err);
       alert("Bulk PDF export failed: " + (err.message || err));
+    } finally {
       restore();
     }
   }

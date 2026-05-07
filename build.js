@@ -24,16 +24,6 @@ const VENDOR = [
     label: "SheetJS xlsx 0.18.5",
     cdn: /<script src="https:\/\/cdn\.jsdelivr\.net\/npm\/xlsx@[^"]+"><\/script>/,
     path: "node_modules/xlsx/dist/xlsx.full.min.js"
-  },
-  {
-    label: "jsPDF 2.5.1",
-    cdn: /<script src="https:\/\/cdn\.jsdelivr\.net\/npm\/jspdf@[^"]+"><\/script>/,
-    path: "node_modules/jspdf/dist/jspdf.umd.min.js"
-  },
-  {
-    label: "JSZip 3.10.1",
-    cdn: /<script src="https:\/\/cdn\.jsdelivr\.net\/npm\/jszip@[^"]+"><\/script>/,
-    path: "node_modules/jszip/dist/jszip.min.js"
   }
 ];
 
@@ -90,7 +80,7 @@ VENDOR.forEach((v) => {
 [
   ["js/parse.js",  /<script src="js\/parse\.js"><\/script>/],
   ["js/render.js", /<script src="js\/render\.js"><\/script>/],
-  ["js/pdf.js",    /<script src="js\/pdf\.js"><\/script>/],
+  ["js/print.js",  /<script src="js\/print\.js"><\/script>/],
   ["js/app.js",    /<script src="js\/app\.js"><\/script>/]
 ].forEach(([file, re]) => {
   if (!re.test(html)) {
