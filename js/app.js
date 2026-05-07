@@ -215,6 +215,7 @@
     } else if (state.view.level === "scout") {
       dash.innerHTML = TR.render.renderScoutView(state, state.view.scout, state.view.tab);
     }
+    updateBulkReportButton();
   }
 
   // ---------------------------------------------------------------------
@@ -251,10 +252,16 @@
       return;
     }
 
-    // Per-scout PDF button (scout detail view)
+    // Per-scout report download (scout detail view)
     const scoutReportEl = e.target.closest("[data-scout-report]");
     if (scoutReportEl) {
       handleScoutReportClick(scoutReportEl);
+      return;
+    }
+
+    // Bulk report download (roster view)
+    if (e.target.closest("#bulk-report-btn")) {
+      handleBulkReportClick();
       return;
     }
 
@@ -302,6 +309,7 @@
   function handleDashboardInput(e) {
     if (e.target.id === "search-input") {
       applyTableSearch(e.target.value);
+      updateBulkReportButton();
     }
   }
 
@@ -382,6 +390,7 @@
         hint.textContent = "Click a rank to filter the roster.";
       }
     }
+    updateBulkReportButton();
   }
 
   // ---------------------------------------------------------------------
@@ -398,6 +407,75 @@
     } catch (err) {
       console.error(err);
       alert("Report download failed: " + (err.message || err));
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Bulk report download (ZIP of HTML reports for visible scouts)
+  // ---------------------------------------------------------------------
+
+  function visibleRosterScouts() {
+    let scouts;
+    if (state.view.level === "patrol") {
+      const names = state.patrols[state.view.patrol] || [];
+      scouts = names.map((n) => state.scouts[n]).filter(Boolean);
+    } else if (state.view.level === "troop") {
+      scouts = Object.values(state.scouts);
+    } else {
+      return [];
+    }
+    if (state.rankFilter) {
+      scouts = scouts.filter((s) => s.currentRank === state.rankFilter);
+    }
+    const searchInput = $("search-input");
+    const q = ((searchInput && searchInput.value) || "").trim().toLowerCase();
+    if (q) {
+      scouts = scouts.filter((s) => s.displayName.toLowerCase().includes(q));
+    }
+    return scouts;
+  }
+
+  function updateBulkReportButton() {
+    const btn = $("bulk-report-btn");
+    if (!btn) return;
+    if (btn.dataset.busy === "1") return;
+    const count = visibleRosterScouts().length;
+    btn.disabled = count === 0;
+    btn.textContent = "Download Reports" + (count > 0 ? " (" + count + ")" : "");
+  }
+
+  async function handleBulkReportClick() {
+    const btn = $("bulk-report-btn");
+    if (!btn) return;
+    if (!TR.report) { alert("Report module failed to load."); return; }
+    const scouts = visibleRosterScouts();
+    if (!scouts.length) return;
+
+    btn.dataset.busy = "1";
+    btn.disabled = true;
+    btn.textContent = "Building " + scouts.length + " report" +
+      (scouts.length === 1 ? "" : "s") + "…";
+
+    const restore = () => {
+      delete btn.dataset.busy;
+      btn.disabled = false;
+      updateBulkReportButton();
+    };
+
+    try {
+      await TR.report.downloadScoutReportsZip(scouts, state, (done, total, name) => {
+        if (done < total) {
+          btn.textContent = "Building " + (done + 1) + " of " + total +
+            (name ? " — " + name : "") + "…";
+        } else {
+          btn.textContent = "Zipping…";
+        }
+      });
+    } catch (err) {
+      console.error(err);
+      alert("Bulk report download failed: " + (err.message || err));
+    } finally {
+      restore();
     }
   }
 

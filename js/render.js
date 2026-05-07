@@ -168,12 +168,17 @@ window.TR = window.TR || {};
         ' — <a href="#" data-clear-rank-filter>clear</a></span>'
       : '<span class="section-hint rank-dist-hint muted">Click a rank to filter the roster.</span>';
 
+    const bulkBtnHtml = scouts.length
+      ? '<button type="button" id="bulk-report-btn" class="btn-secondary" title="Download a ZIP with one HTML report per visible scout.">Download Reports</button>'
+      : "";
+
     return '' +
       '<section class="dashboard">' +
         '<header class="dashboard-header">' +
           "<h2>" + esc(title) + "</h2>" +
           '<div class="dashboard-controls">' +
             '<input type="text" id="search-input" class="search-input" placeholder="Search by name…" autocomplete="off">' +
+            bulkBtnHtml +
           "</div>" +
         "</header>" +
 

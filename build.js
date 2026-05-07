@@ -24,6 +24,11 @@ const VENDOR = [
     label: "SheetJS xlsx 0.18.5",
     cdn: /<script src="https:\/\/cdn\.jsdelivr\.net\/npm\/xlsx@[^"]+"><\/script>/,
     path: "node_modules/xlsx/dist/xlsx.full.min.js"
+  },
+  {
+    label: "JSZip 3.10.1",
+    cdn: /<script src="https:\/\/cdn\.jsdelivr\.net\/npm\/jszip@[^"]+"><\/script>/,
+    path: "node_modules/jszip/dist/jszip.min.js"
   }
 ];
 
