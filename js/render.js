@@ -10,6 +10,7 @@ window.TR = window.TR || {};
 
   const TR = window.TR;
   const RANKS_ADVANCEMENT = TR.parse.RANKS_ADVANCEMENT;
+  const EAGLE_CHOICE_GROUPS = TR.parse.EAGLE_CHOICE_GROUPS;
 
   const RANK_PILL_CLASS = {
     "Scout": "rank-scout",
@@ -48,8 +49,12 @@ window.TR = window.TR || {};
     return '<span class="pill ' + cls + '">' + esc(rank) + "</span>";
   }
 
-  function eaglePill() {
-    return '<span class="pill pill-eagle">Eagle</span>';
+  function eaglePill(b) {
+    if (b.eagleGroup === null || b.eagleGroup === undefined) {
+      return '<span class="pill pill-eagle">Eagle</span>';
+    }
+    const others = EAGLE_CHOICE_GROUPS[b.eagleGroup].filter((n) => n !== b.name);
+    return '<span class="pill pill-eagle" title="One badge from this group satisfies one Eagle requirement">Eagle (or ' + esc(others.join(" or ")) + ")</span>";
   }
 
   // ---------------------------------------------------------------------
@@ -539,10 +544,10 @@ window.TR = window.TR || {};
     const inProgress = (s.meritBadges && s.meritBadges.inProgress) || [];
     const earned = (s.meritBadges && s.meritBadges.earned) || [];
 
-    const eagleIp = inProgress.filter((b) => b.isEagle).sort((a, b) => b.pctComplete - a.pctComplete);
-    const nonEagleIp = inProgress.filter((b) => !b.isEagle).sort((a, b) => b.pctComplete - a.pctComplete);
+    const eagleIp = inProgress.filter((b) => b.countsAsEagle).sort((a, b) => b.pctComplete - a.pctComplete);
+    const nonEagleIp = inProgress.filter((b) => !b.countsAsEagle).sort((a, b) => b.pctComplete - a.pctComplete);
     const earnedSorted = [...earned].sort((a, b) => {
-      if (a.isEagle !== b.isEagle) return a.isEagle ? -1 : 1;
+      if (a.countsAsEagle !== b.countsAsEagle) return a.countsAsEagle ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
 
@@ -570,7 +575,7 @@ window.TR = window.TR || {};
         '<ul class="earned-list">' +
         earnedSorted.map((b) =>
           '<li class="earned-item">' +
-            (b.isEagle
+            (b.countsAsEagle
               ? '<span class="earned-eagle" title="Eagle-required">★</span>'
               : '<span class="earned-eagle-spacer"></span>') +
             '<span class="earned-name">' + esc(b.name) + "</span>" +
@@ -591,7 +596,7 @@ window.TR = window.TR || {};
     return '<div class="badge-card">' +
       '<div class="badge-card-header">' +
         '<span class="badge-name">' + esc(b.name) + "</span>" +
-        (b.isEagle ? eaglePill() : "") +
+        (b.countsAsEagle ? eaglePill(b) : "") +
       "</div>" +
       '<div class="badge-progress">' +
         '<div class="progress-bar"><div class="progress-fill" style="width: ' + b.pctComplete + '%"></div></div>' +

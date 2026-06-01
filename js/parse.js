@@ -23,6 +23,19 @@ window.TR = window.TR || {};
     "Swimming", "Hiking", "Cycling", "Camping", "Family Life"
   ];
 
+  // The three "choose one" groups — one badge from each group satisfies one Eagle slot.
+  const EAGLE_CHOICE_GROUPS = [
+    ["Emergency Preparedness", "Lifesaving"],
+    ["Environmental Science", "Sustainability"],
+    ["Swimming", "Hiking", "Cycling"]
+  ];
+
+  // Fast lookup: badge name → choice group index (0/1/2)
+  const EAGLE_CHOICE_MAP = {};
+  EAGLE_CHOICE_GROUPS.forEach(function (group, i) {
+    group.forEach(function (name) { EAGLE_CHOICE_MAP[name] = i; });
+  });
+
   // ---------------------------------------------------------------------
   // Small helpers
   // ---------------------------------------------------------------------
@@ -65,6 +78,12 @@ window.TR = window.TR || {};
     if (clean(row.Eagle).toLowerCase() === "yes") return true;
     if (clean(row["Merit Badge"]).startsWith("*")) return true;
     return false;
+  }
+
+  // Returns the choice-group index (0/1/2) for a badge name, or -1 if not a choice badge.
+  function eagleGroupIndex(name) {
+    const idx = EAGLE_CHOICE_MAP[name];
+    return idx !== undefined ? idx : -1;
   }
 
   function cleanCounselor(counselor, badgeName) {
@@ -235,10 +254,12 @@ window.TR = window.TR || {};
         : null;
       const comment = !isBlank(row["Comment"]) ? clean(row["Comment"]) : null;
 
+      const grpIdx = eagleGroupIndex(cleanBadgeName(row["Merit Badge"]));
       const entry = {
         name: cleanBadgeName(row["Merit Badge"]),
         rawName: clean(row["Merit Badge"]),
         isEagle: isEagleRequired(row),
+        eagleGroup: grpIdx >= 0 ? grpIdx : null,
         completedCount: completed,
         uncompletedCount: uncompleted,
         pctComplete: total > 0 ? Math.round((completed / total) * 1000) / 10 : 0,
@@ -256,13 +277,33 @@ window.TR = window.TR || {};
       }
     });
 
+    // For each choice group, the first earned badge (or first in-progress if none earned)
+    // wins the Eagle slot. All others in the group are electives for this scout.
+    const groupWinner = new Array(EAGLE_CHOICE_GROUPS.length).fill(null);
+    EAGLE_CHOICE_GROUPS.forEach(function (_, i) {
+      const earnedInGroup = earned.filter((b) => b.eagleGroup === i);
+      const ipInGroup = inProgress.filter((b) => b.eagleGroup === i);
+      if (earnedInGroup.length > 0) groupWinner[i] = earnedInGroup[0].name;
+      else if (ipInGroup.length > 0) groupWinner[i] = ipInGroup[0].name;
+    });
+
+    earned.concat(inProgress).forEach(function (b) {
+      if (!b.isEagle) {
+        b.countsAsEagle = false;
+      } else if (b.eagleGroup === null) {
+        b.countsAsEagle = true;
+      } else {
+        b.countsAsEagle = groupWinner[b.eagleGroup] === b.name;
+      }
+    });
+
     return {
       earned,
       inProgress,
-      eagleInProgressCount: inProgress.filter((b) => b.isEagle).length,
-      nonEagleInProgressCount: inProgress.filter((b) => !b.isEagle).length,
-      eagleEarnedCount: earned.filter((b) => b.isEagle).length,
-      nonEagleEarnedCount: earned.filter((b) => !b.isEagle).length
+      eagleInProgressCount: inProgress.filter((b) => b.countsAsEagle).length,
+      nonEagleInProgressCount: inProgress.filter((b) => !b.countsAsEagle).length,
+      eagleEarnedCount: earned.filter((b) => b.countsAsEagle).length,
+      nonEagleEarnedCount: earned.filter((b) => !b.countsAsEagle).length
     };
   }
 
@@ -273,16 +314,25 @@ window.TR = window.TR || {};
         startedNames.add(stripYearSuffix(cleanBadgeName(row["Merit Badge"])));
       }
     });
-    const unstartedEagle = EAGLE_REQUIRED_NAMES.filter((n) => !startedNames.has(n));
+
+    // Unstarted required (non-choice) Eagle badges
+    const requiredNames = EAGLE_REQUIRED_NAMES.filter((n) => EAGLE_CHOICE_MAP[n] === undefined);
+    const unstartedRequired = requiredNames.filter((n) => !startedNames.has(n));
+
+    // Unstarted choice groups — show as "Badge A or Badge B" when no badge in the group is started
+    const unstartedGroupLabels = EAGLE_CHOICE_GROUPS
+      .filter((group) => !group.some((n) => startedNames.has(n)))
+      .map((group) => group.join(" or "));
+
     const totalEarned = mbInfo.earned.length;
     return {
       eagleBadgesEarned: mbInfo.eagleEarnedCount,
       eagleBadgesInProgress: mbInfo.eagleInProgressCount,
-      eagleBadgesNotStarted: unstartedEagle.length,
+      eagleBadgesNotStarted: unstartedRequired.length + unstartedGroupLabels.length,
       nonEagleBadgesEarned: mbInfo.nonEagleEarnedCount,
       totalBadgesEarned: totalEarned,
       badgesNeededForEagle: Math.max(0, 21 - totalEarned),
-      unstartedEagleBadges: unstartedEagle
+      unstartedEagleBadges: [...unstartedRequired, ...unstartedGroupLabels]
     };
   }
 
@@ -292,7 +342,7 @@ window.TR = window.TR || {};
 
     // Tier 1: Eagle-required badges closest to completion
     const eagleNear = inProgress
-      .filter((b) => b.isEagle && b.uncompletedCount > 0)
+      .filter((b) => b.countsAsEagle && b.uncompletedCount > 0)
       .sort((a, b) => a.uncompletedCount - b.uncompletedCount)
       .slice(0, 2);
 
@@ -325,7 +375,7 @@ window.TR = window.TR || {};
     // Tier 2: Active Eagle badges with counselor (not already in tier 1)
     const eagleNearSet = new Set(eagleNear.map((b) => b.name));
     inProgress
-      .filter((b) => b.isEagle && b.counselor && !eagleNearSet.has(b.name))
+      .filter((b) => b.countsAsEagle && b.counselor && !eagleNearSet.has(b.name))
       .slice(0, 2)
       .forEach((badge) => {
         actions.push({
@@ -438,6 +488,7 @@ window.TR = window.TR || {};
     identifyFile,
     buildScoutRecords,
     RANKS_ADVANCEMENT,
-    EAGLE_REQUIRED_NAMES
+    EAGLE_REQUIRED_NAMES,
+    EAGLE_CHOICE_GROUPS
   };
 })();
