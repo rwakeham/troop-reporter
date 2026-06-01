@@ -14,6 +14,7 @@ window.TR = window.TR || {};
 
   const TR = window.TR;
   const RANKS_ADVANCEMENT = TR.parse.RANKS_ADVANCEMENT;
+  const EAGLE_CHOICE_GROUPS = TR.parse.EAGLE_CHOICE_GROUPS;
 
   const RANK_PILL_CLASS = {
     "Scout": "rank-scout",
@@ -209,10 +210,10 @@ window.TR = window.TR || {};
   function buildMeritBadges(scout, state) {
     if (!state.badgesAvailable) return "";
     const mb = scout.meritBadges || { inProgress: [], earned: [] };
-    const eagleIp = (mb.inProgress || []).filter((b) => b.isEagle).sort((a, b) => b.pctComplete - a.pctComplete);
-    const nonEagleIp = (mb.inProgress || []).filter((b) => !b.isEagle).sort((a, b) => b.pctComplete - a.pctComplete);
+    const eagleIp = (mb.inProgress || []).filter((b) => b.countsAsEagle).sort((a, b) => b.pctComplete - a.pctComplete);
+    const nonEagleIp = (mb.inProgress || []).filter((b) => !b.countsAsEagle).sort((a, b) => b.pctComplete - a.pctComplete);
     const earned = [...(mb.earned || [])].sort((a, b) => {
-      if (a.isEagle !== b.isEagle) return a.isEagle ? -1 : 1;
+      if (a.countsAsEagle !== b.countsAsEagle) return a.countsAsEagle ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
 
@@ -245,12 +246,19 @@ window.TR = window.TR || {};
   function badgeBlock(b) {
     const total = b.completedCount + b.uncompletedCount;
     const pct = Math.round(b.pctComplete);
+    let eaglePillHtml = "";
+    if (b.countsAsEagle) {
+      if (b.eagleGroup !== null && b.eagleGroup !== undefined) {
+        const others = EAGLE_CHOICE_GROUPS[b.eagleGroup].filter((n) => n !== b.name);
+        eaglePillHtml = ' <span class="pill pill-eagle">Eagle (or ' + esc(others.join(" or ")) + ")</span>";
+      } else {
+        eaglePillHtml = ' <span class="pill pill-eagle">Eagle</span>';
+      }
+    }
     return (
       '<div class="badge-block">' +
         '<div class="badge-block-header">' +
-          '<span class="badge-name">' + esc(b.name) +
-            (b.isEagle ? ' <span class="pill pill-eagle">Eagle</span>' : "") +
-          '</span>' +
+          '<span class="badge-name">' + esc(b.name) + eaglePillHtml + '</span>' +
           '<span class="badge-progress-text">' +
             b.completedCount + " of " + total + " (" + pct + "%)" +
           '</span>' +
@@ -267,7 +275,7 @@ window.TR = window.TR || {};
   function earnedRow(b) {
     return (
       '<li class="earned-item">' +
-        '<span class="earned-mark">' + (b.isEagle ? "&#9733;" : "") + '</span>' +
+        '<span class="earned-mark">' + (b.countsAsEagle ? "&#9733;" : "") + '</span>' +
         '<span class="earned-name">' + esc(b.name) + '</span>' +
         '<span class="earned-date">' + (b.awardedDate ? esc(formatDate(b.awardedDate)) : "") + '</span>' +
       "</li>"
